@@ -1480,6 +1480,15 @@ adjust_after_fullsweep(Process *p, Uint size_before, int need, Eterm *objv, int 
         /* Too small - grow to match requested need */
         sz = next_heap_size(p, need_after, 0);
         grow_new_heap(p, sz, objv, nobj);
+    } else if (p->msg.len > 10000) {
+	/* if the message queue is "large", we want lots of extra space in the heap
+	 * to reduce the number of gc's (since they get a lot more expensive with
+	 * a large message queue).  If we have less than 90% free space, we'll grow
+	 * next time, and we'll never shrink under these conditions.
+	 */
+	if (HEAP_SIZE(p) < 10*need_after) {
+	    FLAGS(p) |= F_HEAP_GROW;
+	}
     } else if (3 * HEAP_SIZE(p) < 4 * need_after){
         /* Need more than 75% of current, postpone to next GC.*/
         FLAGS(p) |= F_HEAP_GROW;
