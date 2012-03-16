@@ -423,6 +423,7 @@ static union {
     erts_smp_atomic_t i;
     char align[ERTS_CACHE_LINE_SIZE];
 } last_delivered_ms erts_align_attribute(ERTS_CACHE_LINE_SIZE);
+erts_smp_atomic_t* last_delivered_ms_p = &last_delivered_ms.i;
 
 static void init_erts_deliver_time(Sint64 init_ms)
 {
