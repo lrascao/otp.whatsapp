@@ -425,7 +425,8 @@ queue_message(Process *c_p,
 	      erts_aint32_t *receiver_state,
 	      ErlHeapFragment* bp,
 	      Eterm message,
-	      Eterm seq_trace_token
+	      Eterm seq_trace_token,
+	      int flags
 #ifdef USE_VM_PROBES
 		   , Eterm dt_utag
 #endif
@@ -433,6 +434,7 @@ queue_message(Process *c_p,
 {
     Sint res;
     ErlMessage* mp;
+    int mlock = (flags & ERTS_SND_FLG_PREPEND) ? ERTS_PROC_LOCK_MAIN : ERTS_PROC_LOCK_MSGQ;
     int locked_msgq = 0;
     erts_aint_t state;
 
@@ -454,9 +456,9 @@ queue_message(Process *c_p,
     if (state & (ERTS_PSFLG_EXITING|ERTS_PSFLG_PENDING_EXIT))
 	goto exiting;
 
-    if (!(*receiver_locks & ERTS_PROC_LOCK_MSGQ)) {
-	if (erts_smp_proc_trylock(receiver, ERTS_PROC_LOCK_MSGQ) == EBUSY) {
-	    ErtsProcLocks need_locks = ERTS_PROC_LOCK_MSGQ;
+    if (!(*receiver_locks & mlock)) {
+	if (erts_smp_proc_trylock(receiver, mlock) == EBUSY) {
+	    ErtsProcLocks need_locks = mlock;
 	    if (*receiver_locks & ERTS_PROC_LOCK_STATUS) {
 		erts_smp_proc_unlock(receiver, ERTS_PROC_LOCK_STATUS);
 		need_locks |= ERTS_PROC_LOCK_STATUS;
@@ -477,7 +479,7 @@ queue_message(Process *c_p,
 #endif
 	/* Drop message if receiver is exiting or has a pending exit... */
 	if (locked_msgq)
-	    erts_smp_proc_unlock(receiver, ERTS_PROC_LOCK_MSGQ);
+	    erts_smp_proc_unlock(receiver, mlock);
 	if (bp)
 	    free_message_buffer(bp);
 	message_free(mp);
@@ -492,27 +494,32 @@ queue_message(Process *c_p,
     mp->next = NULL;
     mp->data.heap_frag = bp;
 
+    if (flags & ERTS_SND_FLG_PREPEND) {
+	res = receiver->msg.len;
+	PREPEND_MESSAGE_PRIVQ(receiver, mp);
+    } else {
 #ifndef ERTS_SMP
-    res = receiver->msg.len;
+	res = receiver->msg.len;
 #else
-    res = receiver->msg_inq.len;
-    if (*receiver_locks & ERTS_PROC_LOCK_MAIN) {
-	/*
-	 * We move 'in queue' to 'private queue' and place
-	 * message at the end of 'private queue' in order
-	 * to ensure that the 'in queue' doesn't contain
-	 * references into the heap. By ensuring this,
-	 * we don't need to include the 'in queue' in
-	 * the root set when garbage collecting.
-	 */
-	res += receiver->msg.len;
-	ERTS_SMP_MSGQ_MV_INQ2PRIVQ(receiver);
-	LINK_MESSAGE_PRIVQ(receiver, mp);
-    }
-    else
+	res = receiver->msg_inq.len;
+	if (*receiver_locks & ERTS_PROC_LOCK_MAIN) {
+	    /*
+	     * We move 'in queue' to 'private queue' and place
+	     * message at the end of 'private queue' in order
+	     * to ensure that the 'in queue' doesn't contain
+	     * references into the heap. By ensuring this,
+	     * we don't need to include the 'in queue' in
+	     * the root set when garbage collecting.
+	     */
+	    res += receiver->msg.len;
+	    ERTS_SMP_MSGQ_MV_INQ2PRIVQ(receiver);
+	    LINK_MESSAGE_PRIVQ(receiver, mp);
+	}
+	else
 #endif
-    {
-	LINK_MESSAGE(receiver, mp);
+	{
+	    LINK_MESSAGE(receiver, mp);
+	}
     }
 
 #ifdef USE_VM_PROBES
@@ -539,7 +546,7 @@ queue_message(Process *c_p,
 	trace_receive(receiver, message);
 
     if (locked_msgq)
-	erts_smp_proc_unlock(receiver, ERTS_PROC_LOCK_MSGQ);
+	erts_smp_proc_unlock(receiver, mlock);
 
     erts_proc_notify_new_message(receiver);
 
@@ -566,7 +573,8 @@ erts_queue_message(Process* receiver,
 		  NULL,
 		  bp,
 		  message,
-		  seq_trace_token
+		  seq_trace_token,
+		  0
 #ifdef USE_VM_PROBES
 		  , dt_utag
 #endif
@@ -973,7 +981,8 @@ erts_send_message(Process* sender,
 			    NULL,
 			    bp,
 			    message,
-			    token
+			    token,
+			    flags
 #ifdef USE_VM_PROBES
 			    , utag
 #endif
@@ -1019,7 +1028,11 @@ erts_send_message(Process* sender,
 	     */
 	    
 	    ERTS_SMP_MSGQ_MV_INQ2PRIVQ(receiver);
-	    LINK_MESSAGE_PRIVQ(receiver, mp);
+	    if (flags & ERTS_SND_FLG_PREPEND) {
+		PREPEND_MESSAGE_PRIVQ(receiver, mp);
+	    } else {
+		LINK_MESSAGE_PRIVQ(receiver, mp);
+	    }
 	    erts_incr_message_count(&receiver->msg_enq);
 
 	    res = receiver->msg.len;
@@ -1056,7 +1069,8 @@ erts_send_message(Process* sender,
 			    &state,
 			    bp,
 			    message,
-			    token
+			    token,
+			    flags
 #ifdef USE_VM_PROBES
 			    , NIL
 #endif
