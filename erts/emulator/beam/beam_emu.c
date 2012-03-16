@@ -1940,6 +1940,7 @@ void process_main(void)
                  c_p->msg.len - 1, tok_label, tok_lastcnt, tok_serial);
      }
 #endif
+     erts_incr_message_count(&c_p->msg_deq);
      UNLINK_MESSAGE(c_p, msgp);
      JOIN_MESSAGE(c_p);
      CANCEL_TIMER(c_p);

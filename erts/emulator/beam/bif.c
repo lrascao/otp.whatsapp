@@ -1842,6 +1842,7 @@ do_send(Process *p, Eterm to, Eterm msg, int suspend, Eterm *refp) {
     DistEntry *dep;
     Eterm* tp;
 
+    erts_incr_message_count(&p->msg_send);
     if (is_internal_pid(to)) {
 	if (IS_TRACED(p))
 	    trace_send(p, to, msg);

@@ -45,7 +45,6 @@ ERTS_SCHED_PREF_QUICK_ALLOC_IMPL(message,
 
 
 
-
 static ERTS_INLINE int in_heapfrag(const Eterm* ptr, const ErlHeapFragment *bp)
 {
     return ((unsigned)(ptr - bp->mem) < bp->used_size);
@@ -414,6 +413,7 @@ erts_queue_dist_message(Process *rcvr,
 	    erts_smp_proc_unlock(rcvr, ERTS_PROC_LOCK_MSGQ);
 
 	erts_proc_notify_new_message(rcvr);
+	erts_incr_message_count(&rcvr->msg_enq);
     }
 }
 
@@ -533,6 +533,7 @@ queue_message(Process *c_p,
                 tok_label, tok_lastcnt, tok_serial);
     }
 #endif
+    erts_incr_message_count(&receiver->msg_enq);
 
     if (IS_TRACED_FL(receiver, F_TRACE_RECEIVE))
 	trace_receive(receiver, message);
@@ -1019,6 +1020,7 @@ erts_send_message(Process* sender,
 	    
 	    ERTS_SMP_MSGQ_MV_INQ2PRIVQ(receiver);
 	    LINK_MESSAGE_PRIVQ(receiver, mp);
+	    erts_incr_message_count(&receiver->msg_enq);
 
 	    res = receiver->msg.len;
 
@@ -1090,6 +1092,7 @@ erts_send_message(Process* sender,
 	LINK_MESSAGE(receiver, mp);
 	res = receiver->msg.len;
 	erts_proc_notify_new_message(receiver);
+	erts_incr_message_count(&receiver->msg_enq);
 
 	if (IS_TRACED_FL(receiver, F_TRACE_RECEIVE)) {
 	    trace_receive(receiver, message);
