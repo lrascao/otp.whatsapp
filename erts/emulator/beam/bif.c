@@ -1798,7 +1798,7 @@ ebif_bang_2(BIF_ALIST_2)
 #define SEND_INTERNAL_ERROR	(-6)
 #define SEND_AWAIT_RESULT	(-7)
 
-Sint do_send(Process *p, Eterm to, Eterm msg, int suspend, Eterm *refp);
+Sint do_send(Process *p, Eterm to, Eterm msg, int suspend, Eterm *refp, int prepend);
 
 static Sint remote_send(Process *p, DistEntry *dep,
 			Eterm to, Eterm full_to, Eterm msg, int suspend)
@@ -1852,7 +1852,7 @@ static Sint remote_send(Process *p, DistEntry *dep,
 }
 
 Sint
-do_send(Process *p, Eterm to, Eterm msg, int suspend, Eterm *refp) {
+do_send(Process *p, Eterm to, Eterm msg, int suspend, Eterm *refp, int prepend) {
     Eterm portid;
     Port *pt;
     Process* rp;
@@ -2039,7 +2039,7 @@ do_send(Process *p, Eterm to, Eterm msg, int suspend, Eterm *refp) {
 	    rp_locks |= ERTS_PROC_LOCK_MAIN;
 #endif
 	/* send to local process */
-	res = erts_send_message(p, rp, &rp_locks, msg, 0);
+	res = erts_send_message(p, rp, &rp_locks, msg, prepend ? ERTS_SND_FLG_PREPEND : 0);
 	if (erts_use_sender_punish)
 	    res *= 4;
 	else
@@ -2063,6 +2063,7 @@ BIF_RETTYPE send_3(BIF_ALIST_3)
 
     int connect = !0;
     int suspend = !0;
+    int prepend = 0;
     Eterm l = opts;
     Sint result;
     
@@ -2071,6 +2072,8 @@ BIF_RETTYPE send_3(BIF_ALIST_3)
 	    connect = 0;
 	} else if (CAR(list_val(l)) == am_nosuspend) {
 	    suspend = 0;
+	} else if (CAR(list_val(l)) == am_prepend && is_internal_pid(to)) {
+	    prepend = 1;
 	} else {
 	    BIF_ERROR(p, BADARG);
 	}
@@ -2084,7 +2087,7 @@ BIF_RETTYPE send_3(BIF_ALIST_3)
     ref = NIL;
 #endif
 
-    result = do_send(p, to, msg, suspend, &ref);
+    result = do_send(p, to, msg, suspend, &ref, prepend);
     if (result > 0) {
 	ERTS_VBUMP_REDS(p, result);
 	BIF_RET(am_ok);
@@ -2147,7 +2150,7 @@ Eterm erl_send(Process *p, Eterm to, Eterm msg)
     ref = NIL;
 #endif
 
-    result = do_send(p, to, msg, !0, &ref);
+    result = do_send(p, to, msg, !0, &ref, 0);
     
     if (result > 0) {
 	ERTS_VBUMP_REDS(p, result);
