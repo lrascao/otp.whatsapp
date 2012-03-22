@@ -452,7 +452,7 @@ erts_garbage_collect(Process* p, int need, Eterm* objv, int nobj)
 	while (0 != erts_milli_sleep(erts_test_long_gc_sleep));
 
     end_ms = erts_get_timer_time();
-    gc_ms = end_ms - start_ms;
+    gc_ms = (end_ms > start_ms) ? end_ms - start_ms : 0;
     p->gc_time_accum += gc_ms;
     p->gc_count++;
 
