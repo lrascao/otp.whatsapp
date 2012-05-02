@@ -260,7 +260,7 @@ ipfamily_default(Addr, Port) ->
     httpd_conf:lookup(Addr, Port, ipfamily, inet6fb4).
 
 get_socket_info(Addr, Port, Fd0) ->
-    BaseOpts        = [{backlog, 128}, {reuseaddr, true}], 
+    BaseOpts        = [{backlog, 4096}, {reuseaddr, true}], 
     IpFamilyDefault = ipfamily_default(Addr, Port), 
     %% The presence of a file descriptor takes precedence
     case get_fd(Port, Fd0, IpFamilyDefault) of
