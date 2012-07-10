@@ -550,14 +550,7 @@ static int do_accept(EpmdVars *g,int listensock)
 
     if (msgsock < 0) {
         dbg_perror(g,"error in accept");
-        switch (errno) {
-            case EAGAIN:
-            case ECONNABORTED:
-            case EINTR:
-	            return EPMD_FALSE;
-            default:
-	            epmd_cleanup_exit(g,1);
-        }
+        return EPMD_FALSE;
     }
 
     return conn_open(g,msgsock);
