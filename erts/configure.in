@@ -1082,7 +1082,7 @@ fi
 
 AC_SUBST(ERTS_BUILD_SMP_EMU)
 
-AC_CHECK_FUNCS([posix_fadvise, fallocate])
+AC_CHECK_FUNCS([posix_fadvise fallocate closefrom])
 AC_CHECK_HEADERS([linux/falloc.h])
 
 dnl * Old glibcs have broken posix_fallocate(). Make sure not to use it.
