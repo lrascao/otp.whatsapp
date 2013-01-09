@@ -257,7 +257,7 @@ init_receiver(Node, Tab,Storage,Cs,Reason) ->
 			true = lists:member(Node, Active),
 			{SenderPid, TabSize, DetsData} =
 			    start_remote_sender(Node,Tab,Storage),
-			Init = table_init_fun(SenderPid),
+			Init = table_init_fun(Cs#cstruct.type, SenderPid),
 			Args = [self(),Tab,Storage,Cs,SenderPid,
 				TabSize,DetsData,Init],
 			Pid = spawn_link(?MODULE, spawned_receiver, Args),
@@ -297,16 +297,22 @@ start_remote_sender(Node,Tab,Storage) ->
 	    down(Tab, Storage)
     end.
 
-table_init_fun(SenderPid) ->
+table_init_fun(disc_only_copies, SenderPid) ->
     fun(read) ->
 	    Receiver = self(),
 	    SenderPid ! {Receiver, more},
 	    get_data(SenderPid, Receiver)
+    end;
+table_init_fun(_, SenderPid) ->
+    fun(read) ->
+	    Receiver = self(),
+	    SenderPid ! {Receiver, more},
+	    ets_get_data(SenderPid, Receiver, [])
     end.
 
 %% Add_table_copy get's it's own locks.
 start_receiver(Tab,Storage,Cs,SenderPid,TabSize,DetsData,{dumper,add_table_copy}) ->
-    Init = table_init_fun(SenderPid),
+    Init = table_init_fun(Cs#cstruct.type, SenderPid),
     case do_init_table(Tab,Storage,Cs,SenderPid,TabSize,DetsData,self(), Init) of
 	Err = {error, _} ->
 	    SenderPid ! {copier_done, node()},
@@ -338,6 +344,7 @@ wait_on_load_complete(Pid) ->
 
 do_init_table(Tab,Storage,Cs,SenderPid,
 	      TabSize,DetsInfo,OrigTabRec,Init) ->
+    verbose("Init table ~p started~n", [Tab]),
     case create_table(Tab, TabSize, Storage, Cs) of
 	{Storage,Tab} ->
 	    %% Debug info
@@ -346,7 +353,9 @@ do_init_table(Tab,Storage,Cs,SenderPid,
 	    mnesia_tm:block_tab(Tab),
 	    case init_table(Tab,Storage,Init,DetsInfo,SenderPid) of
 		ok ->
-		    tab_receiver(Node,Tab,Storage,Cs,OrigTabRec);
+		    tab_receiver(Node,Tab,Storage,Cs,OrigTabRec,[]);
+		{ok, TabEvents} ->
+		    tab_receiver(Node,Tab,Storage,Cs,OrigTabRec,TabEvents);
 		Reason ->
 		    Msg = "[d]ets:init table failed",
 		    verbose("~s: ~p: ~p~n", [Msg, Tab, Reason]),
@@ -392,10 +401,10 @@ create_table(Tab, TabSize, Storage, Cs) ->
 	    end
     end.
 
-tab_receiver(Node, Tab, Storage, Cs, OrigTabRec) ->
+tab_receiver(Node, Tab, Storage, Cs, OrigTabRec, TabEvents) ->
     receive
 	{SenderPid, {no_more, DatBin}} ->
-	    finish_copy(Storage,Tab,Cs,SenderPid,DatBin,OrigTabRec);
+	    finish_copy(Storage,Tab,Cs,SenderPid,DatBin,OrigTabRec,TabEvents);
 
 	%% Protocol conversion hack
 	{copier_done, Node} ->
@@ -404,7 +413,7 @@ tab_receiver(Node, Tab, Storage, Cs, OrigTabRec) ->
 
 	{'EXIT', Pid, Reason} ->
 	    handle_exit(Pid, Reason),
-	    tab_receiver(Node, Tab, Storage, Cs, OrigTabRec)
+	    tab_receiver(Node, Tab, Storage, Cs, OrigTabRec, TabEvents)
     end.
 
 make_table_fun(Pid, TabRec) ->
@@ -460,15 +469,16 @@ init_table(Tab, disc_only_copies, Fun, DetsInfo,Sender) ->
 	    dets:init_table(Tab, Fun)
     end;
 init_table(Tab, _, Fun, _DetsInfo,_) ->
-    case catch ets:init_table(Tab, Fun) of
-	true ->
-	    ok;
-	{'EXIT', Else} -> Else
+    case catch ets:delete_all_objects(Tab) of
+        true ->
+            ets_init_table_continue(Tab, Fun(read));
+        {'EXIT', Else} -> Else
     end.
 
-
-finish_copy(Storage,Tab,Cs,SenderPid,DatBin,OrigTabRec) ->
+finish_copy(Storage,Tab,Cs,SenderPid,DatBin,OrigTabRec,TabEvents) ->
     TabRef = {Storage, Tab},
+    verbose("Finish table copy ~p: ~b queued table events~n", [Tab, length(TabEvents)]),
+    handle_table_events(TabRef, Cs#cstruct.record_name, TabEvents),
     subscr_receiver(TabRef, Cs#cstruct.record_name),
     case handle_last(TabRef, Cs#cstruct.type, DatBin) of
 	ok ->
@@ -485,6 +495,74 @@ finish_copy(Storage,Tab,Cs,SenderPid,DatBin,OrigTabRec) ->
 	    down(Tab, Storage)
     end.
 
+ets_make_table_fun(Pid, TabRec, TabEvents) ->
+    fun(close) ->
+	    ok;
+       (read) ->
+	    ets_get_data(Pid, TabRec, TabEvents)
+    end.
+
+ets_get_data(Pid, TabRec, TabEvents) ->
+    receive
+	{Pid, {more_z, CompressedRecs}} when is_binary(CompressedRecs) ->
+	    Pid ! {TabRec, more},
+	    {zlib_uncompress(CompressedRecs), ets_make_table_fun(Pid,TabRec,TabEvents)};
+	{Pid, {more, Recs}} ->
+	    Pid ! {TabRec, more},
+	    {Recs, ets_make_table_fun(Pid,TabRec,TabEvents)};
+	{Pid, no_more} ->
+	    {end_of_input, TabEvents};
+	{copier_done, Node} ->
+	    case node(Pid) of
+		Node ->
+		    {copier_done, Node};
+		_ ->
+		    ets_get_data(Pid, TabRec, TabEvents)
+	    end;
+	{'EXIT', Pid, Reason} ->
+	    handle_exit(Pid, Reason),
+	    ets_get_data(Pid, TabRec, TabEvents);
+	{mnesia_table_event, Event} ->
+	    ets_get_data(Pid, TabRec, [Event | TabEvents])
+    end.
+
+ets_init_table_continue(_Tab, {end_of_input, TabEvents}) ->
+    {ok, lists:reverse(TabEvents)};
+ets_init_table_continue(Table, {List, Fun}) when is_list(List), is_function(Fun) ->
+    case (catch ets_init_table_sub(Table, List)) of
+        {'EXIT', Reason} ->
+            (catch Fun(close)),
+            exit(Reason);
+        true ->
+            ets_init_table_continue(Table, Fun(read))
+    end;
+ets_init_table_continue(_Table, Error) ->
+    exit(Error).
+
+ets_init_table_sub(_Table, []) ->
+    true;
+ets_init_table_sub(Table, [H|T]) ->
+    ets:insert(Table, H),
+    ets_init_table_sub(Table, T).
+
+handle_table_events (TabRef = {_, Tab}, Tab, TabEvents) ->
+    handle_table_events_1(TabRef, TabEvents);
+handle_table_events (TabRef = {_, _Tab}, RecName, TabEvents) ->
+    handle_table_events_2(TabRef, RecName, TabEvents).
+
+handle_table_events_1 (_TabRef, []) ->
+    ok;
+handle_table_events_1 (TabRef, [{Op, Val, _Tid} | Tail]) ->
+    handle_event(TabRef, Op, Val),
+    handle_table_events_1(TabRef, Tail).
+
+handle_table_events_2 (_TabRef, _RecName, []) ->
+    ok;
+handle_table_events_2 (TabRef, RecName, [{Op, Val, _Tid} | Tail]) ->
+    handle_event(TabRef, Op, setelement(1, Val, RecName)),
+    handle_table_events_2(TabRef, RecName, Tail).
+
+    
 subscr_receiver(TabRef = {_, Tab}, RecName) ->
     receive
 	{mnesia_table_event, {Op, Val, _Tid}} ->
