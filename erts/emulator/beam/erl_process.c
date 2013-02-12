@@ -7666,6 +7666,10 @@ void erts_init_empty_process(Process *p)
     p->old_hend = NULL;
     p->old_htop = NULL;
     p->old_heap = NULL;
+    p->gc_time_base = 0;
+    p->gc_time_accum = 0;
+    p->gc_count = 0;
+    p->gc_load_bias = 0;
     p->mbuf = NULL;
     p->mbuf_sz = 0;
     p->psd = NULL;
