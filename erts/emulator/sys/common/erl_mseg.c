@@ -85,7 +85,7 @@ static const int debruijn[32] = {
 #define CACHE_AREAS      (32 - MSEG_ALIGN_BITS)
 
 #define SIZE_TO_CACHE_AREA_IDX(S)   (LOG2((S)) - MSEG_ALIGN_BITS)
-#define MAX_CACHE_SIZE   (30)
+#define MAX_CACHE_SIZE   (1000)
 
 #define MSEG_FLG_IS_2POW(X)    ((X) & ERTS_MSEG_FLG_2POW)
 
