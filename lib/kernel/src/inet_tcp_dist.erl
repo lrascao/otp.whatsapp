@@ -25,13 +25,13 @@
 
 %% internal exports
 
--export([accept_loop/2,do_accept/6,do_setup/6,getstat/1,tick/1]).
+-export([accept_loop/2,do_accept/6,do_setup/6,getstat/1,tick/1,dist_opt/3]).
 
 -import(error_logger,[error_msg/2]).
 
 -include("net_address.hrl").
 
-
+-define(DIST_DEF_BUFFER, 256*1024).
 
 -define(to_port(Socket, Data, Opts),
 	case inet_tcp:send(Socket, Data, Opts) of
@@ -178,16 +178,14 @@ do_accept(Kernel, AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
 		      fun(S) ->
 			      inet:setopts(S, 
 					   [{active, false},
-					    {packet, 4},
-					    nodelay()])
+					    {packet, 4}] ++ dist_opts())
 		      end,
 		      f_setopts_post_nodeup = 
 		      fun(S) ->
 			      inet:setopts(S, 
 					   [{active, true},
 					    {deliver, port},
-					    {packet, 4},
-					    nodelay()])
+					    {packet, 4}])
 		      end,
 		      f_getll = fun(S) ->
 					inet:getll(S)
@@ -208,18 +206,34 @@ do_accept(Kernel, AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
 %% we may not always want the nodelay behaviour
 %% for performance reasons
 
-nodelay() ->
-    case application:get_env(kernel, dist_nodelay) of
-	undefined ->
-	    {nodelay, true};
-	{ok, true} ->
-	    {nodelay, true};
-	{ok, false} ->
-	    {nodelay, false};
+dist_opt (CfgKey, Key, Default) ->
+    case application:get_env(kernel, CfgKey) of
+	{ok, Val} ->
+	    {Key, Val};
+	_ when Default =/= undefined ->
+	    {Key, Default};
 	_ ->
-	    {nodelay, true}
+	    undefined
     end.
-	    
+
+dist_opts () ->
+    Opts = [[dist_nodelay, nodelay, true],
+	    [dist_recbuf, recbuf, undefined],
+	    [dist_sndbuf, sndbuf, undefined],
+	    [dist_buffer, buffer, ?DIST_DEF_BUFFER],
+	    [dist_low_watermark, low_watermark, undefined],
+	    [dist_high_watermark, high_watermark, undefined]],
+    lists:foldl(fun (Args, LOpts) ->
+			 case apply(?MODULE, dist_opt, Args) of
+			     undefined ->
+				 LOpts;
+			     Opt ->
+				 [Opt | LOpts]
+			 end
+		end,
+		[],
+		Opts).
+
 
 %% ------------------------------------------------------------
 %% Get remote information about a Socket.
@@ -279,8 +293,7 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames,SetupTime) ->
 				      inet:setopts
 					(S, 
 					 [{active, false},
-					  {packet, 4},
-					  nodelay()])
+					  {packet, 4}] ++ dist_opts())
 			      end,
 			      f_setopts_post_nodeup = 
 			      fun(S) ->
@@ -288,8 +301,7 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames,SetupTime) ->
 					(S, 
 					 [{active, true},
 					  {deliver, port},
-					  {packet, 4},
-					  nodelay()])
+					  {packet, 4}])
 			      end,
 			      f_getll = fun inet:getll/1,
 			      f_address = 
