@@ -1512,6 +1512,23 @@ static BIF_RETTYPE process_flag_aux(Process *BIF_P,
        else
 	   BIF_RET(old_value);
    }
+   else if (flag == am_flush_message_queue) {
+       Sint i;
+
+       if (!is_small(val)) {
+	   goto error;
+       }
+       i = signed_val(val);
+       if (i < 0) {
+	   goto error;
+       }
+
+       erts_smp_proc_lock(rp, ERTS_PROC_LOCK_MSGQ);
+       ERTS_SMP_MSGQ_MV_INQ2PRIVQ(rp);
+       i = erts_free_pending_messages(rp, i);
+       erts_smp_proc_unlock(rp, ERTS_PROC_LOCK_MSGQ);
+       BIF_RET(make_small(i));
+   }
 
  error:
    BIF_ERROR(BIF_P, BADARG);

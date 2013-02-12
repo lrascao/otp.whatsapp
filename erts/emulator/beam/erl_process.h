@@ -1417,6 +1417,7 @@ void erts_sched_stat_modify(int what);
 Eterm erts_sched_stat_term(Process *p, int total);
 
 void erts_free_proc(Process *);
+int erts_free_pending_messages(Process *p, int num);
 
 void erts_suspend(Process*, ErtsProcLocks, Port*);
 void erts_resume(Process*, ErtsProcLocks);

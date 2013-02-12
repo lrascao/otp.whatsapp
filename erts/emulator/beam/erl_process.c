@@ -7824,8 +7824,6 @@ erts_cleanup_empty_process(Process* p)
 static void
 delete_process(Process* p)
 {
-    ErlMessage* mp;
-
     VERBOSE(DEBUG_PROCESSES, ("Removing process: %T\n",p->common.id));
 
     /* Cleanup psd */
@@ -7880,10 +7878,28 @@ delete_process(Process* p)
 
     erts_erase_dicts(p);
 
+    (void)erts_free_pending_messages(p, 0);
+
+    ASSERT(!p->nodes_monitors);
+    ASSERT(!p->suspend_monitors);
+
+    p->fvalue = NIL;
+}
+
+int
+erts_free_pending_messages(Process *p, int num)
+{
+    int n = 0;
+    ErlMessage* mp;
+
     /* free all pending messages */
     mp = p->msg.first;
     while(mp != NULL) {
 	ErlMessage* next_mp = mp->next;
+	if (num > 0 && n >= num) {
+	    break;
+	}
+	++n;
 	if (mp->data.attached) {
 	    if (is_value(mp->m[0]))
 		free_message_buffer(mp->data.heap_frag);
@@ -7896,14 +7912,22 @@ delete_process(Process* p)
 		erts_free_dist_ext_copy(mp->data.dist_ext);
 	    }
 	}
+	if (p->msg.save == &mp->next) {
+	    p->msg.save = &p->msg.first;
+	}
 	free_message(mp);
 	mp = next_mp;
     }
-
-    ASSERT(!p->nodes_monitors);
-    ASSERT(!p->suspend_monitors);
-
-    p->fvalue = NIL;
+    if (mp) {
+        p->msg.first = mp;
+        p->msg.len -= n;
+    } else {
+        p->msg.first = NULL;
+        p->msg.last = &p->msg.first;
+        p->msg.save = &p->msg.first;
+        p->msg.len = 0;
+    }
+    return n;
 }
 
 static ERTS_INLINE erts_aint32_t
