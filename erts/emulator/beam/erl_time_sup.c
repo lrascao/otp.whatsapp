@@ -84,14 +84,21 @@
 static erts_smp_mtx_t erts_timeofday_mtx;
 
 static SysTimeval inittv; /* Used everywhere, the initial time-of-day */
+static Sint64 init_ms;
 
 static SysTimes t_start; /* Used in elapsed_time_both */
-static SysTimeval gtv; /* Used in wall_clock_elapsed_time_both */
-static SysTimeval then; /* Used in get_now */
-static SysTimeval last_emu_time; /* Used in erts_get_emu_time() */
-SysTimeval erts_first_emu_time; /* Used in erts_get_emu_time() */
 
-union {
+static union {
+    erts_smp_atomic_t i;
+    char align[ERTS_CACHE_LINE_SIZE];
+} gtv_ms erts_align_attribute(ERTS_CACHE_LINE_SIZE);
+
+static union {
+    erts_smp_atomic_t i;
+    char align[ERTS_CACHE_LINE_SIZE];
+} then_us erts_align_attribute(ERTS_CACHE_LINE_SIZE);
+
+static union {
     erts_smp_atomic_t time;
     char align[ERTS_CACHE_LINE_SIZE];
 } approx erts_align_attribute(ERTS_CACHE_LINE_SIZE);
@@ -109,9 +116,8 @@ get_approx_time(void)
 }
 
 static ERTS_INLINE void
-update_approx_time(SysTimeval *tv)
+update_approx_time_sec(erts_approx_time_t new_secs)
 {
-    erts_approx_time_t new_secs = (erts_approx_time_t) tv->tv_sec;
     erts_approx_time_t old_secs = get_approx_time();
     if (old_secs != new_secs)
 	erts_smp_atomic_set_nob(&approx.time, new_secs);
@@ -128,6 +134,8 @@ erts_get_approx_time(void)
 }
 
 #ifdef HAVE_GETHRTIME
+
+#define USE_LOCKED_GTOD
 
 int erts_disable_tolerant_timeofday;
 
@@ -220,6 +228,8 @@ static void get_tolerant_timeofday(SysTimeval *tv)
 #define init_tolerant_timeofday() 
 #define get_tolerant_timeofday(tvp) sys_gettimeofday(tvp)
 #else
+
+#define USE_LOCKED_GTOD
 
 typedef Sint64 Milli;
 
@@ -369,6 +379,22 @@ static void get_tolerant_timeofday(SysTimeval *tvp)
 #endif /* CORRECT_USING_TIMES */
 #endif /* !HAVE_GETHRTIME */
 
+static inline Sint64
+get_tolerant_timeofday_ms (void)
+{
+    SysTimeval tv;
+    get_tolerant_timeofday(&tv);
+    return (Sint64)tv.tv_sec*1000 + tv.tv_usec/1000;
+}
+
+static inline Sint64
+get_tolerant_timeofday_us (void)
+{
+    SysTimeval tv;
+    get_tolerant_timeofday(&tv);
+    return (Sint64)tv.tv_sec*1000000 + tv.tv_usec;
+}
+
 /*
 ** Why this? Well, most platforms have a constant clock resolution of 1,
 ** we dont want the deliver_time/time_remaining routines to waste 
@@ -393,38 +419,44 @@ static int clock_resolution;
 ** instead of something like select.
 */
 
-static SysTimeval last_delivered; 
+static union {
+    erts_smp_atomic_t i;
+    char align[ERTS_CACHE_LINE_SIZE];
+} last_delivered_ms erts_align_attribute(ERTS_CACHE_LINE_SIZE);
 
-static void init_erts_deliver_time(const SysTimeval *inittv)
+static void init_erts_deliver_time(Sint64 init_ms)
 {
     /* We set the initial values for deliver_time here */
-    last_delivered = *inittv;
-    last_delivered.tv_usec = 1000 * (last_delivered.tv_usec / 1000); 
+    erts_smp_atomic_set_nob(&last_delivered_ms.i,init_ms);
                                                    /* ms resolution */
 }
 
-static void do_erts_deliver_time(const SysTimeval *current)
+static void do_erts_deliver_time(Sint64 current_ms)
 {
-    SysTimeval cur_time;
-    erts_time_t elapsed;
+    /* Check whether we need to take lock and actually deliver ticks */
+    if (((current_ms - erts_smp_atomic_read_nob(&last_delivered_ms.i)) / CLOCK_RESOLUTION) > 0) {
+	long elapsed;
+
+#if !defined(USE_LOCKED_GTOD)
+	erts_smp_mtx_lock(&erts_timeofday_mtx);
+#endif
+
+	/* calculate and deliver appropriate number of ticks */
+	elapsed = (current_ms - erts_smp_atomic_read_nob(&last_delivered_ms.i)) /
+		CLOCK_RESOLUTION;
+
+	/* Sometimes the time jump backwards,
+	   resulting in a negative elapsed time. We compensate for
+	   this by simply pretend as if the time stood still. :) */
     
-    /* calculate and deliver appropriate number of ticks */
-    cur_time = *current;
-    cur_time.tv_usec = 1000 * (cur_time.tv_usec / 1000); /* ms resolution */
-    elapsed = (1000 * (cur_time.tv_sec - last_delivered.tv_sec) +
-	       (cur_time.tv_usec - last_delivered.tv_usec) / 1000) / 
-	CLOCK_RESOLUTION;
+	if (elapsed > 0) {
+	    erts_do_time_add(elapsed);
+	    erts_smp_atomic_set_nob(&last_delivered_ms.i,current_ms);
+	}
 
-    /* Sometimes the time jump backwards,
-       resulting in a negative elapsed time. We compensate for
-       this by simply pretend as if the time stood still. :) */
-
-    if (elapsed > 0) {
-
-	ASSERT(elapsed < ((erts_time_t) ERTS_SHORT_TIME_T_MAX));
-
-	erts_do_time_add((erts_short_time_t) elapsed);
-	last_delivered = cur_time;
+#if !defined(USE_LOCKED_GTOD)
+	erts_smp_mtx_unlock(&erts_timeofday_mtx);
+#endif
     }
 }
 
@@ -435,24 +467,22 @@ erts_init_time_sup(void)
 
     init_approx_time();
 
-    last_emu_time.tv_sec = 0;
-    last_emu_time.tv_usec = 0;
-
 #ifndef SYS_CLOCK_RESOLUTION
     clock_resolution = sys_init_time();
 #else
     (void) sys_init_time();
 #endif
     sys_gettimeofday(&inittv);
+    init_ms = (Sint64)inittv.tv_sec*1000 + inittv.tv_usec/1000;
     
 #ifdef HAVE_GETHRTIME
     sys_init_hrtime();
 #endif
     init_tolerant_timeofday();
 
-    init_erts_deliver_time(&inittv);
-    gtv = inittv;
-    then.tv_sec = then.tv_usec = 0;
+    init_erts_deliver_time(init_ms);
+    erts_smp_atomic_init_nob(&gtv_ms.i,init_ms);
+    erts_smp_atomic_init_nob(&then_us.i,0);
 
     erts_deliver_time();
 
@@ -499,24 +529,24 @@ void
 wall_clock_elapsed_time_both(UWord *ms_total, UWord *ms_diff)
 {
     UWord prev_total;
-    SysTimeval tv;
+    Sint64 cur_ms;
 
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_lock(&erts_timeofday_mtx);
+#endif
 
-    get_tolerant_timeofday(&tv);
+    cur_ms = get_tolerant_timeofday_ms();
 
-    *ms_total = 1000 * (tv.tv_sec - inittv.tv_sec) +
-	(tv.tv_usec - inittv.tv_usec) / 1000;
-
-    prev_total = 1000 * (gtv.tv_sec - inittv.tv_sec) +
-	(gtv.tv_usec - inittv.tv_usec) / 1000;
+    *ms_total = cur_ms - init_ms;
+    prev_total = erts_smp_atomic_xchg_nob(&gtv_ms.i,cur_ms) - init_ms;
     *ms_diff = *ms_total - prev_total;
-    gtv = tv;
 
     /* must sync the machine's idea of time here */
-    do_erts_deliver_time(&tv);
+    do_erts_deliver_time(cur_ms);
 
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_unlock(&erts_timeofday_mtx);
+#endif
 }
 
 /* get current time */
@@ -895,33 +925,32 @@ univ_to_local(Sint *year, Sint *month, Sint *day,
 void
 get_now(Uint* megasec, Uint* sec, Uint* microsec)
 {
-    SysTimeval now;
+    Sint64 now_us, then;
     
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_lock(&erts_timeofday_mtx);
+#endif
     
-    get_tolerant_timeofday(&now);
-    do_erts_deliver_time(&now);
+    now_us = get_tolerant_timeofday_us();
+    do_erts_deliver_time(now_us / 1000);
 
     /* Make sure time is later than last */
-    if (then.tv_sec > now.tv_sec ||
-	(then.tv_sec == now.tv_sec && then.tv_usec >= now.tv_usec)) {
-	now = then;
-	now.tv_usec++;
-    }
-    /* Check for carry from above + general reasonability */
-    if (now.tv_usec >= 1000000) {
-	now.tv_usec = 0;
-	now.tv_sec++;
-    }
-    then = now;
-    
-    erts_smp_mtx_unlock(&erts_timeofday_mtx);
-    
-    *megasec = (Uint) (now.tv_sec / 1000000);
-    *sec = (Uint) (now.tv_sec % 1000000);
-    *microsec = (Uint) (now.tv_usec);
+    do {
+	then = erts_smp_atomic_read_wb(&then_us.i);
+	if (then >= now_us) {
+	    now_us = then+1;
+	}
+    } while (erts_smp_atomic_cmpxchg_mb(&then_us.i,now_us,then) != then);
 
-    update_approx_time(&now);
+#if defined(USE_LOCKED_GTOD)
+    erts_smp_mtx_unlock(&erts_timeofday_mtx);
+#endif
+    
+    *megasec = (Uint) ((now_us / 1000000) / 1000000);
+    *sec = (Uint) ((now_us / 1000000) % 1000000);
+    *microsec = (Uint) (now_us % 1000000);
+
+    update_approx_time_sec(now_us / 1000000);
 }
 
 void
@@ -935,25 +964,26 @@ get_sys_now(Uint* megasec, Uint* sec, Uint* microsec)
     *sec = (Uint) (now.tv_sec % 1000000);
     *microsec = (Uint) (now.tv_usec);
 
-    update_approx_time(&now);
+    update_approx_time_sec(now.tv_sec);
 }
 
 
-/* deliver elapsed *ticks* to the machine - takes a pointer
-   to a struct timeval representing current time (to save
-   a gettimeofday() where possible) or NULL */
+/* deliver elapsed *ticks* to the machine */
 
 void erts_deliver_time(void) {
-    SysTimeval now;
+    Sint64 now_ms;
     
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_lock(&erts_timeofday_mtx);
-    
-    get_tolerant_timeofday(&now);
-    do_erts_deliver_time(&now);
-    
-    erts_smp_mtx_unlock(&erts_timeofday_mtx);
+#endif
 
-    update_approx_time(&now);
+    now_ms = get_tolerant_timeofday_ms();
+    do_erts_deliver_time(now_ms);
+
+#if defined(USE_LOCKED_GTOD)
+    erts_smp_mtx_unlock(&erts_timeofday_mtx);
+#endif
+    update_approx_time_sec(now_ms / 1000);
 }
 
 /* get *real* time (not ticks) remaining until next timeout - if there
@@ -963,7 +993,6 @@ void erts_deliver_time(void) {
 void erts_time_remaining(SysTimeval *rem_time)
 {
     erts_time_t ticks;
-    SysTimeval cur_time;
     erts_time_t elapsed;
 
     /* erts_next_time() returns no of ticks to next timeout or -1 if none */
@@ -978,15 +1007,15 @@ void erts_time_remaining(SysTimeval *rem_time)
 	/* next timeout after ticks ticks */
 	ticks *= CLOCK_RESOLUTION;
 	
+#if defined(USE_LOCKED_GTOD)
 	erts_smp_mtx_lock(&erts_timeofday_mtx);
-	
-	get_tolerant_timeofday(&cur_time);
-	cur_time.tv_usec = 1000 * 
-	    (cur_time.tv_usec / 1000);/* ms resolution*/
-	elapsed = 1000 * (cur_time.tv_sec - last_delivered.tv_sec) +
-	    (cur_time.tv_usec - last_delivered.tv_usec) / 1000;
-	
+#endif
+
+	elapsed = get_tolerant_timeofday_ms() - erts_smp_atomic_read_nob(&last_delivered_ms.i);
+
+#if defined(USE_LOCKED_GTOD)
 	erts_smp_mtx_unlock(&erts_timeofday_mtx);
+#endif
 	
 	if (ticks <= elapsed) { /* Ooops, better hurry */
 	    rem_time->tv_sec = rem_time->tv_usec = 0;
@@ -999,25 +1028,31 @@ void erts_time_remaining(SysTimeval *rem_time)
 
 void erts_get_timeval(SysTimeval *tv)
 {
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_lock(&erts_timeofday_mtx);
+#endif
     get_tolerant_timeofday(tv);
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_unlock(&erts_timeofday_mtx);
-    update_approx_time(tv);
+#endif
+    update_approx_time_sec(tv->tv_sec);
 }
 
 erts_time_t
 erts_get_time(void)
 {
     SysTimeval sys_tv;
-    
+
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_lock(&erts_timeofday_mtx);
+#endif
     
     get_tolerant_timeofday(&sys_tv);
     
+#if defined(USE_LOCKED_GTOD)
     erts_smp_mtx_unlock(&erts_timeofday_mtx);
-
-    update_approx_time(&sys_tv);
-
+#endif
+    update_approx_time_sec(sys_tv.tv_sec);
     return sys_tv.tv_sec;
 }
 
