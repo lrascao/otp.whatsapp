@@ -50,6 +50,11 @@
 	 system_code_change/4
 	]).
 
+-export([
+	 init_async_dirty_tm/2
+        ]).
+
+
 -include("mnesia.hrl").
 -import(mnesia_lib, [set/2]).
 -import(mnesia_lib, [fatal/2, verbose/2, dbg_out/2]).
@@ -72,7 +77,12 @@
 		      ram_nodes = [], protocol = sym_trans}).
 
 start() ->
+    NumProc = num_proc(erlang:system_info(schedulers), 1),
+    [ mnesia_monitor:start_proc(?MODULE, ?MODULE, init_async_dirty_tm, [I, self()]) || I <- lists:seq(1, NumProc) ],
     mnesia_monitor:start_proc(?MODULE, ?MODULE, init, [self()]).
+
+num_proc (NumSched, N) when N*2 > NumSched -> N;
+num_proc (NumSched, N) -> num_proc(NumSched, N*2).
 
 init(Parent) ->
     register(?MODULE, self()),
@@ -117,6 +127,11 @@ init(Parent) ->
     proc_lib:init_ack(Parent, {ok, self()}),
     doit_loop(#state{supervisor = Parent}).
 
+init_async_dirty_tm (I, Parent) ->
+    register(num_to_async_dirty_tm_name(I), self()),
+    proc_lib:init_ack(Parent, {ok, self()}),
+    doit_loop(#state{supervisor = Parent}).
+
 val(Var) ->
     case ?catch_val(Var) of
 	{'EXIT', _ReASoN_} -> mnesia_lib:other_val(Var, _ReASoN_);
@@ -132,8 +147,8 @@ reply(From, R, State) ->
     reply(From, R),
     doit_loop(State).
 
-req(R) ->
-    case whereis(?MODULE) of
+req(Where, R) ->
+    case whereis(Where) of
 	undefined ->
 	    {error, {node_not_running, node()}};
 	Pid ->
@@ -141,6 +156,9 @@ req(R) ->
 	    Pid ! {{self(), Ref}, R},
 	    rec(Pid, Ref)
     end.
+
+req(R) ->
+    req(?MODULE, R).
 
 rec() ->
     rec(whereis(?MODULE)).
@@ -193,9 +211,11 @@ prepare_checkpoint(Cp) ->
     req({prepare_checkpoint,Cp}).
 
 block_tab(Tab) ->
+    req(tab_to_async_dirty_tm_name(Tab), {block_tab, Tab}),
     req({block_tab, Tab}).
 
 unblock_tab(Tab) ->
+    req(tab_to_async_dirty_tm_name(Tab), {unblock_tab, Tab}),
     req({unblock_tab, Tab}).
 
 doit_loop(#state{coordinators=Coordinators,participants=Participants,supervisor=Sup}=State) ->
@@ -477,6 +497,29 @@ do_async_dirty(Tid, Commit, _Tab) ->
     catch do_dirty(Tid, Commit),
     ?eval_debug_fun({?MODULE, async_dirty, post}, [{tid, Tid}]).
 
+tab_to_async_dirty_tm_name (Tab) when is_atom(Tab) ->
+    num_to_async_dirty_tm_name(tab_to_async_dirty_tm_num(atom_to_list(Tab))).
+
+num_to_async_dirty_tm_name (N) when is_integer(N) ->
+    list_to_atom("mnesia_tm_" ++ integer_to_list(N)).
+
+tab_to_async_dirty_tm_num ([]) ->
+    1;
+tab_to_async_dirty_tm_num ([$_ | S]) ->
+    case S of
+	[$f, $r, $a, $g | NS] ->
+	    try list_to_integer(NS) of
+		N ->
+		    ((N-1) rem ?NUM_ASYNC_DIRTY_TM) + 1
+	    catch
+		_:_ ->
+		    tab_to_async_dirty_tm_num(S)
+	    end;
+	_ ->
+	    tab_to_async_dirty_tm_num(S)
+    end;
+tab_to_async_dirty_tm_num ([_ | S]) ->
+    tab_to_async_dirty_tm_num(S).
 
 %% Process items in fifo order
 process_dirty_queue(Tab, [Item | Queue]) ->
@@ -1230,6 +1273,7 @@ prepare_items(Tid, Tab, Key, Items, Prep) ->
 	[] -> mnesia:abort({no_exists, Tab});
 	{blocked, _} ->
 	    unblocked = req({unblock_me, Tab}),
+	    unblocked = req(tab_to_async_dirty_tm_name(Tab), {unblock_me, Tab}),
 	    prepare_items(Tid, Tab, Key, Items, Prep);
 	_ ->
 	    Majority = needs_majority(Tab, Prep),
@@ -1998,7 +2042,8 @@ async_send_dirty(Tid, [Head | Tail], Tab, ReadNode, WaitFor, Res) ->
 	    NewRes = {'EXIT', {aborted, {node_not_running, Node}}},
 	    async_send_dirty(Tid, Tail, Tab, ReadNode, [Node | WaitFor], NewRes);
 	true ->
-	    {?MODULE, Node} ! {self(), {async_dirty, Tid, Head, Tab}},
+	    Name = tab_to_async_dirty_tm_name(Tab),
+	    {Name, Node} ! {self(), {async_dirty, Tid, Head, Tab}},
 	    async_send_dirty(Tid, Tail, Tab, ReadNode, WaitFor, Res)
     end;
 async_send_dirty(_Tid, [], _Tab, _ReadNode, WaitFor, Res) ->
