@@ -33,6 +33,7 @@ extern erts_smp_atomic_t* last_delivered_ms_p;
 typedef struct erl_timer {
     struct erl_timer* next;	/* next entry tiw slot or chain */
     struct erl_timer* prev;	/* prev entry tiw slot or chain */
+    Uint instance;		/* timer wheel instance */
     Uint slot;			/* slot in timer wheel */
     Uint count;			/* number of loops remaining */
     int    active;		/* 1=activated, 0=deactivated */
