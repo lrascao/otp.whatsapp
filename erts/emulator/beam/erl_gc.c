@@ -235,6 +235,13 @@ erts_next_heap_size(Uint size, Uint offset)
     }
     return 0;
 }
+
+static inline Uint
+min_heap_size (Process* p)
+{
+    return MIN_HEAP_SIZE(p)+p->gc_load_bias;
+}
+
 /*
  * Return the next heap size to use. Make sure we never return
  * a smaller heap size than the minimum heap size for the process.
@@ -245,7 +252,7 @@ static Uint
 next_heap_size(Process* p, Uint size, Uint offset)
 {
     size = erts_next_heap_size(size, offset);
-    return size < p->min_heap_size ? p->min_heap_size : size;
+    return size < min_heap_size(p) ? min_heap_size(p) : size;
 }
 
 Eterm
@@ -381,6 +388,10 @@ erts_garbage_collect(Process* p, int need, Eterm* objv, int nobj)
 #ifdef USE_VM_PROBES
     DTRACE_CHARBUF(pidbuf, DTRACE_TERM_BUF_SIZE);
 #endif
+    Uint64 start_ms;
+    Uint64 end_ms;
+    Uint64 gc_ms;
+
     if (IS_TRACED_FL(p, F_TRACE_GC)) {
         trace_gc(p, am_gc_start);
     }
@@ -389,6 +400,7 @@ erts_garbage_collect(Process* p, int need, Eterm* objv, int nobj)
     if (erts_system_monitor_long_gc != 0) {
 	get_now(&ms1, &s1, &us1);
     }
+    start_ms = erts_get_timer_time();
 
     ERTS_CHK_OFFHEAP(p);
 
@@ -429,23 +441,51 @@ erts_garbage_collect(Process* p, int need, Eterm* objv, int nobj)
 
     ErtsGcQuickSanityCheck(p);
 
+    if (erts_test_long_gc_sleep)
+	while (0 != erts_milli_sleep(erts_test_long_gc_sleep));
+
+    end_ms = erts_get_timer_time();
+    gc_ms = end_ms - start_ms;
+    p->gc_time_accum += gc_ms;
+    p->gc_count++;
+
+    if (end_ms - p->gc_time_base > 1000) {
+	if (p->gc_time_base != 0) {
+	    Uint64 gcfrac;
+
+	    p->gc_time_base = end_ms - p->gc_time_base;
+	    gcfrac = p->gc_time_accum*100 / p->gc_time_base;
+	    if (gcfrac > 10 && p->msg.len >= 10000 && p->gc_load_bias <= 2*1024*1024) {
+		int offset;
+		if (gcfrac > 20) {
+		    offset = 3;
+		} else if (gcfrac > 10) {
+		    offset = 2;
+		} else {
+		    offset = 1;
+		}
+		p->gc_load_bias = erts_next_heap_size(p->gc_load_bias, offset);
+		monitor_gc_throttle(p);
+	    } else if (p->gc_load_bias > 0 && gcfrac < 2) {
+		p->gc_load_bias = (p->gc_load_bias <= heap_sizes[0]) ? 0 : erts_next_heap_size(p->gc_load_bias, -1);
+		monitor_gc_throttle(p);
+	    }
+	}
+	p->gc_count = 0;
+	p->gc_time_accum = 0;
+	p->gc_time_base = end_ms;
+    }
+
     erts_smp_atomic32_read_band_nob(&p->state, ~ERTS_PSFLG_GC);
 
     if (IS_TRACED_FL(p, F_TRACE_GC)) {
         trace_gc(p, am_gc_end);
     }
 
+
     if (erts_system_monitor_long_gc != 0) {
-	Uint ms2, s2, us2;
-	Sint t;
-	if (erts_test_long_gc_sleep)
-	    while (0 != erts_milli_sleep(erts_test_long_gc_sleep));
-	get_now(&ms2, &s2, &us2);
-	t = ms2 - ms1;
-	t = t*1000000 + s2 - s1;
-	t = t*1000 + ((Sint) (us2 - us1))/1000;
-	if (t > 0 && (Uint)t > erts_system_monitor_long_gc) {
-	    monitor_long_gc(p, t);
+	if (gc_ms > 0 && gc_ms > erts_system_monitor_long_gc) {
+	    monitor_long_gc(p, gc_ms);
 	}
     }
     if (erts_system_monitor_large_heap != 0) {
@@ -883,8 +923,11 @@ minor_collection(Process* p, int need, Eterm* objv, int nobj, Uint *recl)
 		}
 	    }
 
-	    wanted = wanted < MIN_HEAP_SIZE(p) ? MIN_HEAP_SIZE(p)
-					       : next_heap_size(p, wanted, 0);
+            if (wanted < min_heap_size(p)) {
+                wanted = min_heap_size(p);
+            } else {
+                wanted = next_heap_size(p, wanted, 0);
+            }
             if (wanted < HEAP_SIZE(p)) {
                 shrink_new_heap(p, wanted, objv, nobj);
             }
@@ -1456,10 +1499,11 @@ adjust_after_fullsweep(Process *p, Uint size_before, int need, Eterm *objv, int 
            I think this is better as fullsweep is used mainly on
            small memory systems, but I could be wrong... */
         wanted = 2 * need_after;
-	
-	sz = wanted < p->min_heap_size ? p->min_heap_size
-				       : next_heap_size(p, wanted, 0);
-
+        if (wanted < min_heap_size(p)) {
+            sz = min_heap_size(p);
+        } else {
+            sz = next_heap_size(p, wanted, 0);
+        }
         if (sz < HEAP_SIZE(p)) {
             shrink_new_heap(p, sz, objv, nobj);
         }
