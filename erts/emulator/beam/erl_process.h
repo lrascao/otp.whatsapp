@@ -849,10 +849,6 @@ struct process {
     Eterm *old_hend;            /* Heap pointers for generational GC. */
     Eterm *old_htop;
     Eterm *old_heap;
-    Uint64 gc_time_base;
-    Uint gc_count;
-    Uint gc_time_accum;
-    Uint gc_load_bias;
     Uint16 gen_gcs;		/* Number of (minor) generational GCs. */
     Uint16 max_gen_gcs;		/* Max minor gen GCs before fullsweep. */
     ErlOffHeap off_heap;	/* Off-heap data updated by copy_struct(). */
