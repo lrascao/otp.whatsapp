@@ -4407,6 +4407,25 @@ BIF_RETTYPE system_flag_2(BIF_ALIST_2)
 	    "scheduled for removal in erts-5.10/OTP-R16. For more\n"
 	    "information see the erlang:system_flag/2 documentation.\n");
 	return erts_bind_schedulers(BIF_P, BIF_ARG_2);
+    } else if (ERTS_IS_ATOM_STR("scheduler_busy_wait_threshold", BIF_ARG_1)) {
+	char* BWT_STR[] = {
+	    "very_long",
+	    "long",
+	    "medium",
+	    "short",
+	    "very_short",
+	    "none",
+	    NULL
+	};
+	int i;
+	for (i = 0; BWT_STR[i]; ++i) {
+	    if (erts_is_atom_utf8_bytes((byte*)(BWT_STR[i]), strlen(BWT_STR[i]), BIF_ARG_2)) {
+		if (!erts_sched_set_busy_wait_threshold(BWT_STR[i])) {
+		    BIF_RET(am_true);
+		}
+		break;
+	    }
+	}
     }
     error:
     BIF_ERROR(BIF_P, BADARG);
