@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -127,13 +127,7 @@ end_per_suite(_Config) ->
 %% ===========================================================================
 
 %% Test the watchdog state machine for the required failover, failback
-%% and reopen behaviour. Do this by having the testcase replace
-%% diameter_service and start watchdogs, and having this module
-%% implement a transport process that plays the role of the peer
-%% Diameter node.
-
-%reopen(_) ->
-%    reopen(connect, ?WD(10000), 1, 'DWR');
+%% and reopen behaviour by examining watchdog events.
 
 reopen(_) ->
     [] = run([[reopen, T, Wd, N, M]
@@ -349,7 +343,7 @@ recv_reopen(listen, Ref, _, _) ->
 reg(Type, Ref, SvcName, T) ->
     TPid = tpid(Type, Ref, diameter:service_info(SvcName, transport)),
     true = diameter_reg:add_new({?MODULE, TPid, T}).
-    
+
 %% tpid/3
 
 tpid(connect, Ref, [[{ref, Ref},
@@ -375,7 +369,7 @@ tpid(listen, Ref, [[{ref, Ref},
       {port, [{owner, TPid} | _]}
       | _]]
         = lists:filter(fun([{watchdog, {_,_,S}} | _]) ->
-                               S == okay orelse S == reopen 
+                               S == okay orelse S == reopen
                        end,
                        As),
     TPid.
@@ -432,7 +426,7 @@ send({SvcName, {_,_,_} = T}, Sock, Bin) ->
     putr(origin, [OH, OR]),
     putr(config, T),
     send(Sock, Bin);
-    
+
 %% Discard DWA, failback after another timeout in the peer.
 send({Wd, 0 = No, Msg}, Sock, Bin) ->
     Origin = getr(origin),
