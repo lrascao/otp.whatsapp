@@ -946,7 +946,12 @@ list_dir_int(Port, Dir) ->
 		fun(P) ->
 			case list_dir_response(P, []) of
 			    {ok, RawNames} ->
-				{ok, list_dir_convert(RawNames)};
+				try
+				    {ok, list_dir_convert(RawNames)}
+				catch
+				    throw:Reason ->
+					Reason
+				end;
 			    Error ->
 				Error
 			end
@@ -992,7 +997,7 @@ list_dir_convert([Name|Names]) ->
 	{error, ignore} ->
 	    list_dir_convert(Names);
 	{error, error} ->
-	    {error, {no_translation, Name}};
+	    throw({error, {no_translation, Name}});
 	Converted when is_list(Converted) ->
 	    [Converted|list_dir_convert(Names)]
     end;
@@ -1003,9 +1008,9 @@ list_dir_convert_all([Name|Names]) ->
     %% a binary.
     case prim_file:internal_native2name(Name) of
 	{error, _} ->
-	    [Name|list_dir_convert(Names)];
+	    [Name|list_dir_convert_all(Names)];
 	Converted when is_list(Converted) ->
-	    [Converted|list_dir_convert(Names)]
+	    [Converted|list_dir_convert_all(Names)]
     end;
 list_dir_convert_all([]) -> [].
 

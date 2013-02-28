@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -88,7 +88,7 @@ encode_real(_C, {Mantissa, Base, Exponent}) when Base =:= 2 ->
 	      end,
 %%    ok = io:format("SignBitMask: ~w~n",[SignBitMask]),
     SFactor = 0,
-    OctExpLen = size(OctExp),
+    OctExpLen = byte_size(OctExp),
     if OctExpLen > 255 ->
 	    exit({error,{asn1, {to_big_exp_in_encode_real, OctExpLen}}});
        true  -> true %% make real assert later..

@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1998-2012. All Rights Reserved.
+# Copyright Ericsson AB 1998-2013. All Rights Reserved.
 #
 # The contents of this file are subject to the Erlang Public License,
 # Version 1.1, (the "License"); you may not use this file except in
@@ -124,7 +124,7 @@ BINDIR      = $(DESTDIR)$(EXTRA_PREFIX)$(bindir)
 #
 # Erlang base public files
 #
-ERL_BASE_PUB_FILES=erl erlc epmd run_erl to_erl dialyzer typer escript ct_run run_test
+ERL_BASE_PUB_FILES=erl erlc epmd run_erl to_erl dialyzer typer escript ct_run
 
 # ERLANG_INST_LIBDIR is the top directory where the Erlang installation
 # will be located when running.

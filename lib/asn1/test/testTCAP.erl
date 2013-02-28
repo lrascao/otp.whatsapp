@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2003-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -37,7 +37,7 @@ compile_asn1config(Config, Options) ->
     asn1_test_lib:compile_all(Files, Config, Options),
     asn1_test_lib:compile_erlang("TCAPPackage_msg", Config, []).
 
-test(ber=Erule,_Config) ->
+test(Erule,_Config) ->
 %    ?line OutDir = ?config(priv_dir,Config),
     %% testing OTP-4798, open type encoded with indefinite length
     ?line {ok,_Res} = asn1_wrapper:decode('TCAPMessages-simple','MessageType', val_OTP_4798(Erule)),

@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2000-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2000-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -612,8 +612,8 @@ long driver_async(ErlDrvPort ix, unsigned int* key,
 	sched_id = 1;
 #endif
 
-    prt = erts_drvport2port(ix, NULL);
-    if (!prt)
+    prt = erts_drvport2port(ix);
+    if (prt == ERTS_INVALID_ERL_DRV_PORT)
 	return -1;
 
     ERTS_SMP_LC_ASSERT(erts_lc_is_port_locked(prt));

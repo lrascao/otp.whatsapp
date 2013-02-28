@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2004-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2004-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -57,10 +57,6 @@
 #  undef ETHR_INLINE
 #  define ETHR_INLINE 
 #  undef ETHR_TRY_INLINE_FUNCS
-#endif
-
-#if !defined(ETHR_DISABLE_NATIVE_IMPLS) && (defined(PURIFY)||defined(VALGRIND))
-#  define ETHR_DISABLE_NATIVE_IMPLS
 #endif
 
 /* Assume 64-byte cache line size */
@@ -413,7 +409,11 @@ extern ethr_runtime_t ethr_runtime__;
 #  endif
 #endif
 
-#include "ethr_optimized_fallbacks.h"
+#ifdef VALGRIND  /* mutex as fallback for spinlock for VALGRIND */
+#  undef ETHR_HAVE_NATIVE_SPINLOCKS
+#else
+#  include "ethr_optimized_fallbacks.h"
+#endif
 
 typedef struct {
     void *(*thread_create_prepare_func)(void);

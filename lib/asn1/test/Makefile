@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1997-2012. All Rights Reserved.
+# Copyright Ericsson AB 1997-2013. All Rights Reserved.
 #
 # The contents of this file are subject to the Erlang Public License,
 # Version 1.1, (the "License"); you may not use this file except in
@@ -109,6 +109,7 @@ MODULES= \
 	test_modified_x420 \
 	testX420 \
 	test_x691 \
+	testWSParamClass \
 	asn1_test_lib \
 	asn1_app_test \
 	asn1_appup_test \

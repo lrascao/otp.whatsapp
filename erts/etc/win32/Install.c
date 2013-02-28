@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2003-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2003-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -170,20 +170,6 @@ int main(int argc, char **argv)
 		    fromname,toname);
 	    fprintf(stderr,"Continuing installation anyway...\n");
 	}
-    }
-
-    // Remove in R16B
-    sprintf(fromname,"%s\\%s",bin_dir,"ct_run.exe");
-    sprintf(toname,"%s\\%s",bin_dir,"run_test.exe");
-    if (GetFileAttributes(fromname) == 0xFFFFFFFF) {
-      fprintf(stderr,"Could not find file %s\n",
-	      fromname);
-      exit(1);
-    }
-    if (!CopyFile(fromname,toname,FALSE)) {
-      fprintf(stderr,"Could not copy file %s to %s\n",
-	      fromname,toname);
-      fprintf(stderr,"Continuing installation anyway...\n");
     }
     
     for (i = 0; scripts[i] != NULL; ++i) {

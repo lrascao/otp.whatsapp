@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2001-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -68,6 +68,8 @@ is_pure(erlang, atom_to_list, 1) -> true;
 is_pure(erlang, binary_part, 2) -> true;
 is_pure(erlang, binary_part, 3) -> true;
 is_pure(erlang, binary_to_atom, 2) -> true;
+is_pure(erlang, binary_to_float, 1) -> true;
+is_pure(erlang, binary_to_integer, 1) -> true;
 is_pure(erlang, binary_to_list, 1) -> true;
 is_pure(erlang, binary_to_list, 3) -> true;
 is_pure(erlang, bit_size, 1) -> true;
@@ -75,8 +77,10 @@ is_pure(erlang, byte_size, 1) -> true;
 is_pure(erlang, element, 2) -> true;
 is_pure(erlang, float, 1) -> true;
 is_pure(erlang, float_to_list, 1) -> true;
+is_pure(erlang, float_to_binary, 1) -> true;
 is_pure(erlang, hash, 2) -> false;
 is_pure(erlang, hd, 1) -> true;
+is_pure(erlang, integer_to_binary, 1) -> true;
 is_pure(erlang, integer_to_list, 1) -> true;
 is_pure(erlang, is_atom, 1) -> true;
 is_pure(erlang, is_boolean, 1) -> true;

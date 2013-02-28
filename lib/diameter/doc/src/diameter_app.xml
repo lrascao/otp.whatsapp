@@ -13,7 +13,7 @@
 <header>
 
 <copyright>
-<year>2011</year><year>2012</year>
+<year>2011</year><year>2013</year>
 <holder>Ericsson AB. All Rights Reserved.</holder>
 </copyright>
 <legalnotice>
@@ -475,6 +475,7 @@ not selected.</p>
            | discard
            | {eval|eval_packet, Action, PostF}</v>
 <v>Reply   = {reply, &packet; | &message;}
+           | {answer_message, 3000..3999|5000..5999}
            | {protocol_error, 3000..3999}</v>
 <v>Opt     = &mod_call_opt;</v>
 <v>PostF   = &mod_evaluable;</v>
@@ -509,14 +510,15 @@ Otherwise it contains the record representing the request as outlined
 in &dict;.</p>
 
 <p>
-The <c>errors</c> field specifies any Result-Code's identifying errors
-that were encountered in decoding the request.
-In this case diameter will set both Result-Code and
-Failed-AVP AVP's in a returned
-answer &message; before sending it to the peer:
-the returned &message; need only set any other required AVP's.
-Note that the errors detected by diameter are all of the 5xxx series
-(Permanent Failures).
+The <c>errors</c> field specifies any results codes identifying errors
+found while decoding the request.
+This is used to set Result-Code and/or Failed-AVP in a returned
+answer unless the callback returns a <c>#diameter_packet{}</c>
+whose <c>errors</c> field is set to either a non-empty list of its
+own, in which case this list is used instead, or the atom <c>false</c>
+to disable any setting of Result-Code and Failed-AVP.
+Note that the errors detected by diameter are of the 3xxx
+and 5xxx series, Protocol Errors and Permanent Failures respectively.
 The <c>errors</c> list is empty if the request has been received in
 the relay application.</p>
 
@@ -544,24 +546,25 @@ preserved in the outgoing answer, appropriate values otherwise
 being set by diameter.</p>
 </item>
 
-<tag><c>{protocol_error, 3000..3999}</c></tag>
+<tag><c>{answer_message, 3000..3999|5000..5999}</c></tag>
 <item>
 <p>
 Send an answer message to the peer containing the specified
-protocol error.
+Result-Code.
 Equivalent to</p>
 <pre>
 {reply, ['answer-message' | Avps]
 </pre>
 <p>
 where <c>Avps</c> sets the Origin-Host, Origin-Realm, the specified
-Result-Code and (if the request sent one) Session-Id AVP's.</p>
+Result-Code and (if the request contained one) Session-Id AVP's.</p>
 
 <p>
-Note that &the_rfc; mandates that only answers with a 3xxx series
-Result-Code (protocol errors) may set the E bit.
-Returning a non-3xxx value in a <c>protocol_error</c> tuple
-will cause the request process in question to fail.</p>
+Returning a value other than 3xxx or 5xxx will cause the request
+process in question to fail, as will returning a 5xxx value if the
+peer connection in question has been configured with the RFC 3588
+common dictionary <c>diameter_gen_base_rfc3588</c>.
+(Since RFC 3588 only allows 3xxx values in an answer-message.)</p>
 </item>
 
 <tag><c>{relay, Opts}</c></tag>
@@ -614,11 +617,20 @@ containing the encoded binary.
 The return value is ignored.</p>
 </item>
 
+<tag><c>{protocol_error, 3000..3999}</c></tag>
+<item>
+<p>
+Equivalent to <c>{answer_message, 3000..3999}</c>.</p>
+</item>
+
 </taglist>
 
+<note>
 <p>
-Note that protocol errors detected by diameter will result in an
-answer message without <c>handle_request/3</c> being invoked.</p>
+Requests containing errors may be answered by diameter, without a
+callback taking place, depending on the value of the
+&mod_application_opt; <c>request_errors</c>.</p>
+</note>
 
 </desc>
 </func>

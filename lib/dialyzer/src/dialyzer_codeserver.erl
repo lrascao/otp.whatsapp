@@ -2,7 +2,7 @@
 %%-----------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -100,10 +100,7 @@ ets_dict_to_dict(Table) ->
   ets:foldl(Fold, dict:new(), Table).
 
 ets_set_is_element(Key, Table) ->
-  case ets:lookup(Table, Key) of
-      [] -> false;
-      _ -> true
-  end.
+  ets:lookup(Table, Key) =/= [].
 
 ets_set_insert_set(Set, Table) ->
   ets_set_insert_list(sets:to_list(Set), Table).
@@ -116,7 +113,7 @@ ets_set_to_set(Table) ->
   ets:foldl(Fold, sets:new(), Table).
 
 ets_read_concurrent_table(Name) ->
-  ets:new(Name,[{read_concurrency, true}]).
+  ets:new(Name, [{read_concurrency, true}]).
 
 %%--------------------------------------------------------------------
 

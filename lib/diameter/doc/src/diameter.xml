@@ -16,7 +16,7 @@
 <header>
 
 <copyright>
-<year>2011</year><year>2012</year>
+<year>2011</year><year>2013</year>
 <holder>Ericsson AB. All Rights Reserved.</holder>
 </copyright>
 <legalnotice>
@@ -188,7 +188,7 @@ Defaults to the value of the <c>alias</c> option if unspecified.</p>
 <item>
 <p>
 Specifies whether or not the &app_pick_peer;
-application callback can modify the application state,
+application callback can modify the application state.
 Defaults to <c>false</c> if unspecified.</p>
 
 <note>
@@ -206,11 +206,13 @@ probably avoid it.</p>
 <item>
 <p>
 Determines the manner in which incoming answer messages containing
-decode errors are handled.
+decode errors are handled.</p>
+
+<p>
 If <c>callback</c> then errors result in a &app_handle_answer;
 callback in the same fashion as for &app_handle_request;, with
 errors communicated in the <c>errors</c> field of the
-<c>#diameter_packet{}</c> record passed to the callback.
+<c>#diameter_packet{}</c> passed to the callback.
 If <c>report</c> then an answer containing errors is discarded
 without a callback and a warning report is written to the log.
 If <c>discard</c> then an answer containing errors is silently
@@ -222,6 +224,39 @@ question is as if a callback had taken place and returned
 
 <p>
 Defaults to <c>report</c> if unspecified.</p>
+</item>
+
+<tag><c>{request_errors, answer_3xxx|answer|callback}</c></tag>
+<item>
+<p>
+Determines the manner in which incoming requests are handled when an
+error other than 3007, DIAMETER_APPLICATION_UNSUPPORTED (which cannot
+be associated with an application callback module), is detected.</p>
+
+<p>
+If <c>answer_3xxx</c> then requests are answered without a
+&app_handle_request; callback taking place.
+If <c>answer</c> then even 5xxx errors are answered without a
+callback unless the connection in question has configured the RFC 3588
+common dictionary as noted below.
+If <c>callback</c> then a &app_handle_request; callback always takes
+place and the return value determines the answer sent to the peer.</p>
+
+<p>
+Defaults to <c>answer_3xxx</c> if unspecified.</p>
+
+<note>
+<p>
+Answers sent by diameter set the E-bit in the Diameter Header.
+Since RFC 3588 allowed only 3xxx result codes in an
+<c>answer-message</c>, <c>answer</c> has the same semantics as
+<c>answer_3xxx</c> if the peer connection in question has configured
+the RFC 3588 common dictionary, <c>diameter_gen_base_rfc3588</c>.
+RFC 6733 allows both 3xxx and 5xxx result codes in an
+<c>answer-message</c> so a connection configured with the RFC 6733
+common dictionary, <c>diameter_gen_base_rfc6733</c>, does
+distinguish between <c>answer_3xxx</c> and <c>answer</c>.</p>
+</note>
 </item>
 
 </taglist>
@@ -534,7 +569,7 @@ Pkt    = #diameter_packet{}
 The RFC 3539 watchdog state machine has
 transitioned into (<c>up</c>) or out of (<c>down</c>) the OKAY
 state.
-If a <c>#diameter_packet{}</c> record is present in an <c>up</c> event
+If a <c>#diameter_packet{}</c> is present in an <c>up</c> event
 then there has been a capabilties exchange on a newly established
 transport connection and the record contains the received CER or CEA.
 Otherwise a connection has reestablished without the loss or

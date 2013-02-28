@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -58,7 +58,7 @@ bin_to_list(_, _) ->
 -spec bin_to_list(Subject, Pos, Len) -> [byte()] when
       Subject :: binary(),
       Pos :: non_neg_integer(),
-      Len :: non_neg_integer().
+      Len :: integer().
 
 bin_to_list(_, _, _) ->
     erlang:nif_error(undef).
@@ -186,7 +186,7 @@ part(_, _) ->
 -spec part(Subject, Pos, Len) -> binary() when
       Subject :: binary(),
       Pos :: non_neg_integer(),
-      Len :: non_neg_integer().
+      Len :: integer().
 
 part(_, _, _) ->
     erlang:nif_error(undef).

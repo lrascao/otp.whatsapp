@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -256,7 +256,7 @@ close(S) ->
 -spec send(Socket, Packet) -> ok | {error, Reason} when
       Socket :: socket(),
       Packet :: iodata(),
-      Reason :: inet:posix().
+      Reason :: closed | inet:posix().
 
 send(S, Packet) when is_port(S) ->
     case inet_db:lookup_socket(S) of

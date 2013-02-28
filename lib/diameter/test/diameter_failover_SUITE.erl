@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -103,9 +103,9 @@
 -define(SUCCESS, 2001).
 
 %% Value of Termination-Cause determines client/server behaviour.
--define(LOGOUT,   ?'DIAMETER_BASE_TERMINATION-CAUSE_DIAMETER_LOGOUT').
--define(MOVED,    ?'DIAMETER_BASE_TERMINATION-CAUSE_DIAMETER_USER_MOVED').
--define(TIMEOUT,  ?'DIAMETER_BASE_TERMINATION-CAUSE_DIAMETER_SESSION_TIMEOUT').
+-define(LOGOUT,   ?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT').
+-define(MOVED,    ?'DIAMETER_BASE_TERMINATION-CAUSE_USER_MOVED').
+-define(TIMEOUT,  ?'DIAMETER_BASE_TERMINATION-CAUSE_SESSION_TIMEOUT').
 
 %% ===========================================================================
 

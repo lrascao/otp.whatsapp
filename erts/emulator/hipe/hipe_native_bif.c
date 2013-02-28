@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2001-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -503,9 +503,7 @@ static int validate_unicode(Eterm arg)
 {
     if (is_not_small(arg) ||
 	arg > make_small(0x10FFFFUL) ||
-	(make_small(0xD800UL) <= arg && arg <= make_small(0xDFFFUL)) ||
-	arg == make_small(0xFFFEUL) ||
-	arg == make_small(0xFFFFUL))
+	(make_small(0xD800UL) <= arg && arg <= make_small(0xDFFFUL)))
 	return 0;
     return 1;
 }

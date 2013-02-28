@@ -282,7 +282,7 @@ join_lines([], Txt, L, Col, Ind) ->
 %% =====================================================================
 %% Utility functions for internal use
 
-filename([C|T]) when is_integer(C), C > 0, C =< 255 ->
+filename([C|T]) when is_integer(C), C > 0 ->
     [C | filename(T)];
 filename([]) ->
     [];
@@ -291,7 +291,7 @@ filename(N) ->
     exit(error).
 
 error_read_file(Name) ->
-    report_error("error reading file `~s'.", [Name]).
+    report_error("error reading file `~ts'.", [Name]).
 
 report_error(S, Vs) ->
     error_logger:error_msg(lists:concat([?MODULE, ": ", S, "\n"]), Vs).

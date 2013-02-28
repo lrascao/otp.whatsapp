@@ -2,7 +2,7 @@
 %%-----------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -1543,12 +1543,11 @@ get_bif_constr({erlang, '==', 2}, Dst, [Arg1, Arg2] = Args, _State) ->
 			   mk_constraint(Arg1, sub, ArgV1),
 			   mk_constraint(Arg2, sub, ArgV2)]);
 get_bif_constr({erlang, element, 2} = _BIF, Dst, Args,
-               #state{cs = Constrs} = State) ->
+               #state{cs = Constrs, opaques = Opaques}) ->
   GenType = erl_bif_types:type(erlang, element, 2),
   case t_is_none(GenType) of
     true -> ?debug("Bif: ~w failed\n", [_BIF]), throw(error);
     false ->
-      Opaques = State#state.opaques,
       Fun = fun(Map) ->
 		[I, T] = ATs = lookup_type_list(Args, Map),
 		ATs2 = case lists:member(T, Opaques) of
@@ -2582,19 +2581,8 @@ enter_type(Key, Val, Map) when is_integer(Key) ->
       end
   end;
 enter_type(Key, Val, Map) ->
-  ?debug("Entering ~s :: ~s\n", [format_type(Key), format_type(Val)]),
   KeyName = t_var_name(Key),
-  case t_is_any(Val) of
-    true ->
-      erase_type(KeyName, Map);
-    false ->
-      LimitedVal = t_limit(Val, ?INTERNAL_TYPE_LIMIT),
-      case dict:find(KeyName, Map) of
-	{ok, LimitedVal} -> Map;
-	{ok, _} -> map_store(KeyName, LimitedVal, Map);
-	error -> map_store(KeyName, LimitedVal, Map)
-      end
-  end.
+  enter_type(KeyName, Val, Map).
 
 enter_type_lists([Key|KeyTail], [Val|ValTail], Map) ->
   Map1 = enter_type(Key, Val, Map),

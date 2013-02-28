@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -716,7 +716,7 @@ analyse([], [This={M,F,A}|Path], Visited, ErrCnt0) ->
     %% These modules should be loaded by code.erl before 
     %% the code_server is started.
     OK = [erlang, os, prim_file, erl_prim_loader, init, ets,
-	  code_server, lists, lists_sort, unicode, binary, filename, packages, 
+	  code_server, lists, lists_sort, unicode, binary, filename,
 	  gb_sets, gb_trees, hipe_unified_loader, hipe_bifs,
 	  prim_zip, zlib],
     ErrCnt1 = 
@@ -822,6 +822,10 @@ check_funs({'$M_EXPR','$F_EXPR',2},
 check_funs({'$M_EXPR','$F_EXPR',1},
 	   [{lists,foreach,2},
 	    {hipe_unified_loader,patch_consts,3} | _]) -> 0;
+check_funs({'$M_EXPR','$F_EXPR',1},
+	   [{lists,foreach,2},
+	    {hipe_unified_loader,mark_referred_from,1},
+	    {hipe_unified_loader,get_refs_from,2}| _]) -> 0;
 check_funs({'$M_EXPR',warning_msg,2},
 	   [{code_server,finish_on_load_report,2} | _]) -> 0;
 %% This is cheating! /raimo
@@ -1590,7 +1594,7 @@ native_early_modules_1(Architecture) ->
             ?line true = lists:all(fun code:is_module_native/1,
 				   [ets,file,filename,gb_sets,gb_trees,
 				    %%hipe_unified_loader, no_native as workaround
-				    lists,os,packages]),
+				    lists,os]),
             ok
     end.
 

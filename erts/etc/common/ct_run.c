@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2010. All Rights Reserved.
+ * Copyright Ericsson AB 2010-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -85,7 +85,6 @@ static char* strsave(char* string);
 static void push_words(char* src);
 static int run_erlang(char* name, char** argv);
 static char* get_default_emulator(char* progname);
-static void print_deprecation_warning(char *progname); 
 #ifdef __WIN32__
 static char* possibly_quote(char* arg);
 #endif
@@ -131,8 +130,6 @@ main(int argc, char** argv)
     int cnt;
     int erl_args;
     char** argv0 = argv;
-
-    print_deprecation_warning(argv[0]);
 
     emulator = get_default_emulator(argv[0]);
 
@@ -445,15 +442,6 @@ static char *simple_basename(char *path)
 	}
     }
     return path;
-}
-
-static void print_deprecation_warning(char* progpath)
-{
-  char *basename = simple_basename(progpath);
-  if(strcmp(basename,"run_test") == 0 ||
-       strcmp(basename, "run_test.exe") == 0) {
-    printf("---***---\nDeprecated: run_test is deprecated and will be removed in R16B,\n            please use ct_run instead\n---***---\n");
-  }
 }
 
 static char*

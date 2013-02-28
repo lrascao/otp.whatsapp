@@ -2,7 +2,7 @@
 %%-----------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -798,10 +798,7 @@ condensation(G) ->
     fun({V1, V2}) ->
         I1 = ets:lookup_element(V2I, V1, 2),
         I2 = ets:lookup_element(V2I, V2, 2),
-	case I1 =:= I2 of
-	  true  -> true;
-	  false -> ets:insert(I2I, {I1, I2})
-	end
+	I1 =:= I2 orelse ets:insert(I2I, {I1, I2})
     end,
   lists:foreach(Fun1, digraph:edges(G)),
   Fun3 =

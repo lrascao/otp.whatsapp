@@ -736,9 +736,6 @@ type(erlang, is_tuple, 1, Xs) ->
 %% Guard bif, needs to be here.
 type(erlang, length, 1, Xs) ->
   strict(arg_types(erlang, length, 1), Xs, fun (_) -> t_non_neg_fixnum() end);
-type(erlang, list_to_integer, 2, Xs) ->
-  strict(arg_types(erlang, list_to_integer, 2), Xs,
-	 fun (_) -> t_integer() end);
 type(erlang, make_tuple, 2, Xs) ->
   strict(arg_types(erlang, make_tuple, 2), Xs,
 	 fun ([Int, _]) ->
@@ -1074,7 +1071,7 @@ type(hipe_bifs, ref_set, 2, Xs) ->
   strict(arg_types(hipe_bifs, ref_set, 2), Xs, fun (_) -> t_nil() end);
 type(hipe_bifs, remove_refs_from, 1, Xs) ->
   strict(arg_types(hipe_bifs, remove_refs_from, 1), Xs,
-	 fun (_) -> t_nil() end);
+	 fun (_) -> t_atom('ok') end);
 type(hipe_bifs, set_funinfo_native_address, 3, Xs) ->
   strict(arg_types(hipe_bifs, set_funinfo_native_address, 3), Xs,
 	 fun (_) -> t_nil() end);
@@ -2231,8 +2228,6 @@ arg_types(erlang, is_tuple, 1) ->
 %% Guard bif, needs to be here.
 arg_types(erlang, length, 1) ->
   [t_list()];
-arg_types(erlang, list_to_integer, 2) ->
-  [t_list(t_byte()), t_from_range(2, 36)];
 arg_types(erlang, make_tuple, 2) ->
   [t_non_neg_fixnum(), t_any()];  % the value 0 is OK as first argument
 arg_types(erlang, make_tuple, 3) ->

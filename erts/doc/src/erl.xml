@@ -615,6 +615,28 @@
 	     debugging.</item>
 	   </taglist>
       </item>
+      <tag><marker id="+pc"/><marker id="max_processes"><c><![CDATA[+pc Range]]></c></marker></tag>
+      <item>
+	<p>Sets the range of characters that the system will consider printable in heuristic detection of strings. This typically affects the shell, debugger and io:format functions (when ~tp is used in the format string).</p> 
+	<p>Currently two values for the <c>Range</c> are supported:
+	<taglist>
+	  <tag><c>latin1</c></tag> <item>The default. Only characters
+	  in the ISO-latin-1 range can be considered printable, which means
+	  that a character with a code point &gt; 255 will never be
+	  considered printable and that lists containing such
+	  characters will be displayed as lists of integers rather
+	  than text strings by tools.</item>
+	  <tag><c>unicode</c></tag>
+	  <item>All printable Unicode characters are considered when
+	  determining if a list of integers is to be displayed in
+	  string syntax. This may give unexpected results if for
+	  example your font does not cover all Unicode
+	  characters.</item>
+	</taglist>
+	</p>
+	<p>Se also <seealso marker="stdlib:io#printable_range/0">
+	io:printable_range/0</seealso>.</p>
+      </item>
       <tag><marker id="+P"/><marker id="max_processes"><c><![CDATA[+P Number]]></c></marker></tag>
       <item>
 	<p>Sets the maximum number of simultaneously existing processes for this
@@ -643,6 +665,8 @@
 	than <c>65536</c>, the chosen value will increased to a value
 	larger or equal to the maximum amount of file descriptors that
 	can be opened.</p>
+	<p>On Windows the default value is set to <c>8196</c> because the 
+	normal OS limitations are set higher than most machines can handle.</p>
 	<p>Previously the environment variable <c>ERL_MAX_PORTS</c> was used
 	for setting the maximum number of simultaneously existing ports. This
 	environment variable is deprecated, and scheduled for removal in
@@ -985,15 +1009,12 @@
 	    documentation of the <seealso marker="#+sbt">+sbt</seealso> flag.
 	    </p>
 	  </item>
-	  <tag><marker id="+sws"><c>+sws default|legacy|proposal</c></marker></tag>
+	  <tag><marker id="+sws"><c>+sws default|legacy</c></marker></tag>
 	  <item>
-             <p>Set scheduler wakeup strategy. Default is <c>legacy</c> (has been
-	        used since OTP-R13B). The <c>proposal</c> strategy is the currently
-		proposed strategy for OTP-R16. Note that the <c>proposal</c> strategy
-		might change during OTP-R15.
+             <p>
+	       Set scheduler wakeup strategy. Default strategy changed in erts-5.10/OTP-R16A. This strategy was previously known as <c>proposal</c> in OTP-R15. The <c>legacy</c> strategy was used as default from R13 up to and including R15.
 	     </p>
-             <p><em>NOTE:</em> This flag may be removed or changed at any time
-	        without prior notice.
+             <p><em>NOTE:</em> This flag may be removed or changed at any time without prior notice.
 	     </p>
 	  </item>
 	  <tag><marker id="+swt"><c>+swt very_low|low|medium|high|very_high</c></marker></tag>

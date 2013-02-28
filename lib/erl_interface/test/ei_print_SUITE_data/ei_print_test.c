@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2001-2009. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2013. All Rights Reserved.
  * 
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -18,6 +18,9 @@
  */
 
 #include "ei_runner.h"
+
+#include <string.h>
+#include <stdlib.h>
 
 /*
  * Purpose: Tests the ei_print() function.

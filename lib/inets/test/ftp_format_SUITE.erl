@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2005-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -273,7 +273,7 @@ ftp_other_status_codes(Config) when is_list(Config) ->
     %% 4XX
     {trans_neg_compl, _ }  = ftp_response:interpret("421 Foobar\r\n"),
     {trans_neg_compl, _ }  = ftp_response:interpret("426 Foobar\r\n"),
-    {trans_neg_compl, _ }  = ftp_response:interpret("450 Foobar\r\n"),
+    {enofile, _ }  = ftp_response:interpret("450 Foobar\r\n"),
     {trans_neg_compl, _ }  = ftp_response:interpret("451 Foobar\r\n"),
     {etnospc, _ }  = ftp_response:interpret("452 Foobar\r\n"),
 

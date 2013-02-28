@@ -46,6 +46,7 @@
 	 read_write_file/1, names/1]).
 -export([cur_dir_0/1, cur_dir_1/1, make_del_dir/1,
 	 list_dir/1,list_dir_error/1,
+	 untranslatable_names/1, untranslatable_names_error/1,
 	 pos1/1, pos2/1]).
 -export([close/1, consult1/1, path_consult/1, delete/1]).
 -export([ eval1/1, path_eval/1, script1/1, path_script/1,
@@ -56,7 +57,7 @@
 -export([rename/1, access/1, truncate/1, datasync/1, sync/1,
 	 read_write/1, pread_write/1, append/1, exclusive/1]).
 -export([ e_delete/1, e_rename/1, e_make_dir/1, e_del_dir/1]).
--export([otp_5814/1]).
+-export([otp_5814/1, otp_10852/1]).
 
 -export([ read_not_really_compressed/1,
 	 read_compressed_cooked/1, read_compressed_cooked_binary/1,
@@ -111,13 +112,14 @@ all() ->
      {group, files}, delete, rename, names, {group, errors},
      {group, compression}, {group, links}, copy,
      delayed_write, read_ahead, segment_read, segment_write,
-     ipread, pid2name, interleaved_read_write, otp_5814,
+     ipread, pid2name, interleaved_read_write, otp_5814, otp_10852,
      large_file, large_write, read_line_1, read_line_2, read_line_3,
      read_line_4, standard_io].
 
 groups() -> 
     [{dirs, [], [make_del_dir, cur_dir_0, cur_dir_1,
-		 list_dir, list_dir_error]},
+		 list_dir, list_dir_error, untranslatable_names,
+		 untranslatable_names_error]},
      {files, [],
       [{group, open}, {group, pos}, {group, file_info},
        {group, consult}, {group, eval}, {group, script},
@@ -556,6 +558,112 @@ list_dir_1(TestDir, Cnt, Sorted0) ->
     Sorted = lists:sort(DirList0),
     Sorted = lists:sort(DirList1),
     list_dir_1(TestDir, Cnt-1, Sorted).
+
+untranslatable_names(Config) ->
+    case no_untranslatable_names() of
+	true ->
+	    {skip,"Not a problem on this OS"};
+	false ->
+	    untranslatable_names_1(Config)
+    end.
+
+untranslatable_names_1(Config) ->
+    {ok,OldCwd} = file:get_cwd(),
+    PrivDir = ?config(priv_dir, Config),
+    Dir = filename:join(PrivDir, "untranslatable_names"),
+    ok = file:make_dir(Dir),
+    Node = start_node(untranslatable_names, "+fnu"),
+    try
+	ok = file:set_cwd(Dir),
+	[ok = file:write_file(F, F) || {_,F} <- untranslatable_names()],
+
+	ExpectedListDir0 = [unicode:characters_to_list(N, utf8) ||
+			       {utf8,N} <- untranslatable_names()],
+	ExpectedListDir = lists:sort(ExpectedListDir0),
+	io:format("ExpectedListDir: ~p\n", [ExpectedListDir]),
+	ExpectedListDir = call_and_sort(Node, file, list_dir, [Dir]),
+
+	ExpectedListDirAll0 = [case Enc of
+				   utf8 ->
+				       unicode:characters_to_list(N, utf8);
+				   latin1 ->
+				       N
+			       end || {Enc,N} <- untranslatable_names()],
+	ExpectedListDirAll = lists:sort(ExpectedListDirAll0),
+	io:format("ExpectedListDirAll: ~p\n", [ExpectedListDirAll]),
+	ExpectedListDirAll = call_and_sort(Node, file, list_dir_all, [Dir])
+    after
+	catch test_server:stop_node(Node),
+	file:set_cwd(OldCwd),
+	[file:delete(F) || {_,F} <- untranslatable_names()],
+	file:del_dir(Dir)
+    end,
+    ok.
+
+untranslatable_names_error(Config) ->
+    case no_untranslatable_names() of
+	true ->
+	    {skip,"Not a problem on this OS"};
+	false ->
+	    untranslatable_names_error_1(Config)
+    end.
+
+untranslatable_names_error_1(Config) ->
+    {ok,OldCwd} = file:get_cwd(),
+    PrivDir = ?config(priv_dir, Config),
+    Dir = filename:join(PrivDir, "untranslatable_names_error"),
+    ok = file:make_dir(Dir),
+    Node = start_node(untranslatable_names, "+fnue"),
+    try
+	ok = file:set_cwd(Dir),
+	[ok = file:write_file(F, F) || {_,F} <- untranslatable_names()],
+
+	ExpectedListDir0 = [unicode:characters_to_list(N, utf8) ||
+			       {utf8,N} <- untranslatable_names()],
+	ExpectedListDir = lists:sort(ExpectedListDir0),
+	io:format("ExpectedListDir: ~p\n", [ExpectedListDir]),
+	{error,{no_translation,BadFile}} =
+	    rpc:call(Node, file, list_dir, [Dir]),
+	true = lists:keymember(BadFile, 2, untranslatable_names())
+
+    after
+	catch test_server:stop_node(Node),
+	file:set_cwd(OldCwd),
+	[file:delete(F) || {_,F} <- untranslatable_names()],
+	file:del_dir(Dir)
+    end,
+    ok.
+
+untranslatable_names() ->
+    [{utf8,<<"abc">>},
+     {utf8,<<"def">>},
+     {utf8,<<"Lagerl",195,182,"f">>},
+     {utf8,<<195,150,"stra Emterwik">>},
+     {latin1,<<"M",229,"rbacka">>},
+     {latin1,<<"V",228,"rmland">>}].
+
+call_and_sort(Node, M, F, A) ->
+    {ok,Res} = rpc:call(Node, M, F, A),
+    lists:sort(Res).
+
+no_untranslatable_names() ->
+    case os:type() of
+	{unix,darwin} -> true;
+	{win32,_} -> true;
+	_ -> false
+    end.
+
+start_node(Name, Args) ->
+    [_,Host] = string:tokens(atom_to_list(node()), "@"),
+    ct:log("Trying to start ~w@~s~n", [Name,Host]),
+    case test_server:start_node(Name, peer, [{args,Args}]) of
+	{error,Reason} ->
+	    test_server:fail(Reason);
+	{ok,Node} ->
+	    ct:log("Node ~p started~n", [Node]),
+	    Node
+    end.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -3407,6 +3515,49 @@ otp_5814(Config) when is_list(Config) ->
     file:delete(File),
     ?line ?t:timetrap_cancel(Dog),
     ok.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+otp_10852(suite) ->
+    [];
+otp_10852(doc) ->
+    ["OTP-10852. +fnu and latin1 filenames"];
+otp_10852(Config) when is_list(Config) ->
+    Node = start_node(erl_pp_helper, "+fnu"),
+    Dir = ?config(priv_dir, Config),
+    B = filename:join(Dir, <<"\xE4">>),
+    ok = rpc_call(Node, get_cwd, [B]),
+    {error, no_translation} = rpc_call(Node, set_cwd, [B]),
+    ok = rpc_call(Node, delete, [B]),
+    ok = rpc_call(Node, rename, [B, B]),
+    ok = rpc_call(Node, read_file_info, [B]),
+    ok = rpc_call(Node, read_link_info, [B]),
+    ok = rpc_call(Node, read_link, [B]),
+    ok = rpc_call(Node, write_file_info, [B,#file_info{}]),
+    ok = rpc_call(Node, list_dir, [B]),
+    ok = rpc_call(Node, list_dir_all, [B]),
+    ok = rpc_call(Node, read_file, [B]),
+    ok = rpc_call(Node, make_link, [B,B]),
+    ok = rpc_call(Node, make_symlink, [B,B]),
+    ok = rpc_call(Node, delete, [B]),
+    ok = rpc_call(Node, make_dir, [B]),
+    ok = rpc_call(Node, del_dir, [B]),
+    ok = rpc_call(Node, write_file, [B,B]),
+    {ok, Fd} = rpc_call(Node, open, [B,[read]]),
+    ok = rpc_call(Node, close, [Fd]),
+    {ok,0} = rpc_call(Node, copy, [B,B]),
+    {ok, Fd2, B} = rpc_call(Node, path_open, [["."], B, [read]]),
+    ok = rpc_call(Node, close, [Fd2]),
+    true = test_server:stop_node(Node),
+    ok.
+
+rpc_call(N, F, As) ->
+    case rpc:call(N, ?FILE_MODULE, F, As) of
+        {error, enotsup} -> ok;
+        {error, enoent} -> ok;
+        {error, badarg} -> ok;
+        Else -> Else
+    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

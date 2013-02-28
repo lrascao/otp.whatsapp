@@ -29,7 +29,11 @@
          manpage/1, otp_6708/1, otp_7084/1, otp_7421/1,
 	 io_lib_collect_line_3_wb/1, cr_whitespace_in_string/1,
 	 io_fread_newlines/1, otp_8989/1, io_lib_fread_literal/1,
-	 io_lib_print_binary_depth_one/1, otp_10302/1, otp_10836/1]).
+	 printable_range/1,
+	 io_lib_print_binary_depth_one/1, otp_10302/1, otp_10755/1,
+	 otp_10836/1]).
+
+-export([pretty/2]).
 
 %-define(debug, true).
 
@@ -65,7 +69,8 @@ all() ->
      manpage, otp_6708, otp_7084, otp_7421,
      io_lib_collect_line_3_wb, cr_whitespace_in_string,
      io_fread_newlines, otp_8989, io_lib_fread_literal,
-     io_lib_print_binary_depth_one, otp_10302, otp_10836].
+     printable_range,
+     io_lib_print_binary_depth_one, otp_10302, otp_10755, otp_10836].
 
 groups() -> 
     [].
@@ -2025,6 +2030,79 @@ io_lib_fread_literal(Suite) when is_list(Suite) ->
     ?line {done,{ok,[]},[]} = io_lib:fread(C2, "d\n", " d"),
     ok.
 
+
+printable_range(doc) ->
+    "Check that the printable range set by the user actually works";
+printable_range(Suite) when is_list(Suite) ->
+    Pa = filename:dirname(code:which(?MODULE)),
+    {ok, UNode} = test_server:start_node(printable_range_unicode, slave,
+					 [{args, " +pc unicode -pa " ++ Pa}]),
+    {ok, LNode} = test_server:start_node(printable_range_latin1, slave,
+					 [{args, " +pc latin1 -pa " ++ Pa}]),
+    {ok, DNode} = test_server:start_node(printable_range_default, slave,
+					 [{args, " -pa " ++ Pa}]),
+    unicode = rpc:call(UNode,io,printable_range,[]),
+    latin1 = rpc:call(LNode,io,printable_range,[]),
+    latin1 = rpc:call(DNode,io,printable_range,[]),
+    test_server:stop_node(UNode),
+    test_server:stop_node(LNode),
+    {ok, UNode} = test_server:start_node(printable_range_unicode, slave,
+					 [{args, " +pcunicode -pa " ++ Pa}]),
+    {ok, LNode} = test_server:start_node(printable_range_latin1, slave,
+					 [{args, " +pclatin1 -pa " ++ Pa}]),
+    unicode = rpc:call(UNode,io,printable_range,[]),
+    latin1 = rpc:call(LNode,io,printable_range,[]),
+    {error, _} = test_server:start_node(printable_range_unnicode, slave,
+					[{args, " +pcunnicode -pa " ++ Pa}]),
+    PrettyOptions = [{column,1},
+		     {line_length,109},
+		     {depth,30},
+		     {max_chars,60},
+		     {record_print_fun,
+		      fun(_,_) -> no end},
+		     {encoding,unicode}],
+    1025 = lists:max(lists:flatten(rpc:call(UNode,io_lib_pretty,print,
+					    [{hello, [1024,1025]},
+					     PrettyOptions]))),
+    125 = lists:max(lists:flatten(rpc:call(LNode,io_lib_pretty,print,
+					   [{hello, [1024,1025]},
+					    PrettyOptions]))),
+    125 = lists:max(lists:flatten(rpc:call(DNode,io_lib_pretty,print,
+					   [{hello, [1024,1025]},
+					    PrettyOptions]))),
+    1025 = lists:max(lists:flatten(rpc:call(UNode,io_lib_pretty,print,
+					    [{hello, <<1024/utf8,1025/utf8>>},
+					     PrettyOptions]))),
+    125 = lists:max(lists:flatten(rpc:call(LNode,io_lib_pretty,print,
+					   [{hello, <<1024/utf8,1025/utf8>>},
+					    PrettyOptions]))),
+    125 = lists:max(lists:flatten(rpc:call(DNode,io_lib_pretty,print,
+					   [{hello, <<1024/utf8,1025/utf8>>},
+					    PrettyOptions]))),
+    
+    1025 = lists:max(lists:flatten(rpc:call(UNode,io_lib,format,
+					    ["~tp",[{hello, [1024,1025]}]]))),
+    125 = lists:max(lists:flatten(rpc:call(LNode,io_lib,format,
+					   ["~tp",[{hello, [1024,1025]}]]))),
+    125 = lists:max(lists:flatten(rpc:call(DNode,io_lib,format,
+					   ["~tp",[{hello, [1024,1025]}]]))),
+    1025 = lists:max(lists:flatten(rpc:call(UNode,io_lib,format,
+					    ["~tp",
+					     [{hello, 
+					       <<1024/utf8,1025/utf8>>}]]))),
+    125 = lists:max(lists:flatten(rpc:call(LNode,io_lib,format,
+					   ["~tp",
+					    [{hello,
+					      <<1024/utf8,1025/utf8>>}]]))),
+    125 = lists:max(lists:flatten(rpc:call(DNode,io_lib,format,
+					   ["~tp",
+					    [{hello,
+					      <<1024/utf8,1025/utf8>>}]]))),
+    test_server:stop_node(UNode),
+    test_server:stop_node(LNode),
+    test_server:stop_node(DNode),
+    ok.
+
 io_lib_print_binary_depth_one(doc) ->
     "Test binaries printed with a depth of one behave correctly";
 io_lib_print_binary_depth_one(Suite) when is_list(Suite) ->
@@ -2039,16 +2117,30 @@ io_lib_print_binary_depth_one(Suite) when is_list(Suite) ->
 otp_10302(doc) ->
     "OTP-10302. Unicode";
 otp_10302(Suite) when is_list(Suite) ->
-    "\"\x{400}\"" = pretty("\x{400}", -1),
-    "<<\"\x{400}\"/utf8>>" = pretty(<<"\x{400}"/utf8>>, -1),
+    Pa = filename:dirname(code:which(?MODULE)),
+    {ok, UNode} = test_server:start_node(printable_range_unicode, slave,
+					 [{args, " +pc unicode -pa " ++ Pa}]),
+    {ok, LNode} = test_server:start_node(printable_range_latin1, slave,
+					 [{args, " +pc latin1 -pa " ++ Pa}]),
+    "\"\x{400}\"" = rpc:call(UNode,?MODULE,pretty,["\x{400}", -1]),
+    "<<\"\x{400}\"/utf8>>" = rpc:call(UNode,?MODULE,pretty,
+				      [<<"\x{400}"/utf8>>, -1]),
 
-    "<<\"\x{400}foo\"/utf8>>" = pretty(<<"\x{400}foo"/utf8>>, 2),
+    "<<\"\x{400}foo\"/utf8>>" = rpc:call(UNode,?MODULE,pretty,
+					 [<<"\x{400}foo"/utf8>>, 2]),
+    "[1024]" = rpc:call(LNode,?MODULE,pretty,["\x{400}", -1]),
+    "<<208,128>>" = rpc:call(LNode,?MODULE,pretty,[<<"\x{400}"/utf8>>, -1]),
+
+    "<<208,...>>" = rpc:call(LNode,?MODULE,pretty,[<<"\x{400}foo"/utf8>>, 2]),
+    test_server:stop_node(UNode),
+    test_server:stop_node(LNode),
+
     "<<\"äppl\"/utf8>>" = pretty(<<"äppl"/utf8>>, 2),
     "<<\"äppl\"/utf8...>>" = pretty(<<"äpple"/utf8>>, 2),
     "<<\"apel\">>" = pretty(<<"apel">>, 2),
     "<<\"apel\"...>>" = pretty(<<"apelsin">>, 2),
-    "<<228,112,112,108>>" = fmt("~tp", [<<"äppl">>]),
-    "<<228,...>>" = fmt("~tP", [<<"äppl">>, 2]),
+    "<<\"äppl\">>" = fmt("~tp", [<<"äppl">>]),
+    "<<\"äppl\"...>>" = fmt("~tP", [<<"äpple">>, 2]),
     "<<0,0,0,0,0,0,1,0>>" = fmt("~p", [<<256:64/unsigned-integer>>]),
     "<<0,0,0,0,0,0,1,0>>" = fmt("~tp", [<<256:64/unsigned-integer>>]),
 
@@ -2085,3 +2177,40 @@ otp_10836(Suite) when is_list(Suite) ->
     S = io_lib:format("~ts", [[<<"äpple"/utf8>>, <<"äpple">>]]),
     "äppleäpple" = lists:flatten(S),
     ok.
+
+otp_10755(doc) ->
+    "OTP-10755. The 'l' modifier";
+otp_10755(Suite) when is_list(Suite) ->
+    S = "string",
+    "\"string\"" = fmt("~p", [S]),
+    "[115,116,114,105,110,103]" = fmt("~lp", [S]),
+    "\"string\"" = fmt("~P", [S, 2]),
+    "[115|...]" = fmt("~lP", [S, 2]),
+    {'EXIT',{badarg,_}} = (catch fmt("~ltp", [S])),
+    {'EXIT',{badarg,_}} = (catch fmt("~tlp", [S])),
+    {'EXIT',{badarg,_}} = (catch fmt("~ltP", [S])),
+    {'EXIT',{badarg,_}} = (catch fmt("~tlP", [S])),
+    Text =
+        "-module(l_mod).\n"
+        "-export([t/0]).\n"
+        "t() ->\n"
+        "    S = \"string\",\n"
+        "    io:format(\"~ltp\", [S]),\n"
+        "    io:format(\"~tlp\", [S]),\n"
+        "    io:format(\"~ltP\", [S, 1]),\n"
+        "    io:format(\"~tlP\", [S, 1]).\n",
+    {ok,l_mod,[{_File,Ws}]} = compile_file("l_mod.erl", Text, Suite),
+    ["format string invalid (invalid control ~lt)",
+     "format string invalid (invalid control ~tl)",
+     "format string invalid (invalid control ~lt)",
+     "format string invalid (invalid control ~tl)"] =
+        [lists:flatten(M:format_error(E)) || {_L,M,E} <- Ws],
+    ok.
+
+compile_file(File, Text, Config) ->
+    PrivDir = ?privdir(Config),
+    Fname = filename:join(PrivDir, File),
+    ok = file:write_file(Fname, Text),
+    try compile:file(Fname, [return])
+    after ok %file:delete(Fname)
+    end.

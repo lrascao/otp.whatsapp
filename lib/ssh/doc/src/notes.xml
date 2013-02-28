@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2004</year><year>2012</year>
+      <year>2004</year><year>2013</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -28,6 +28,29 @@
     <rev>%VSN%</rev>
     <file>notes.xml</file>
   </header>
+
+<section><title>Ssh 2.1.4</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Better quality on the error messages for when key
+	    exchange failed.</p>
+          <p>
+	    Own Id: OTP-10553 Aux Id: seq12152 </p>
+        </item>
+        <item>
+          <p>
+	    Fix link to documentation for ssh:connect/3,4. Thanks to
+	    Martin Hässler.</p>
+          <p>
+	    Own Id: OTP-10862</p>
+        </item>
+      </list>
+    </section>
+
+</section>
 
 <section><title>Ssh 2.1.3</title>
 

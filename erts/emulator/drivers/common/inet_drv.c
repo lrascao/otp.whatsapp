@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1997-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -7834,7 +7834,7 @@ static ErlDrvSSizeT inet_ctl(inet_descriptor* desc, int cmd, char* buf,
       if (!IS_CONNECTED(desc))
 	  return ctl_error(ENOTCONN, rbuf, rsize);
 
-      if (!desc->stype == SOCK_STREAM)
+      if (desc->stype != SOCK_STREAM)
 	  return ctl_error(EINVAL, rbuf, rsize);
 
       if (*buf == 1 && !desc->is_ignored) {
@@ -8819,7 +8819,7 @@ static int tcp_recv_error(tcp_descriptor* desc, int err)
 	    if (desc->inet.exitf)
 		driver_exit(desc->inet.port, err);
 	    else
-		desc_close(INETP(desc));
+		desc_close_read(INETP(desc));
 	}
 	return -1;
     }

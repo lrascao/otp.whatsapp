@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2002-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2002-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -231,7 +231,7 @@ erts_next_heap_size(Uint size, Uint offset)
 		low = mid + 1;
 	    }
 	}
-	erl_exit(1, "no next heap size found: %lu, offset %lu\n", (unsigned long)size, (unsigned long)offset);
+	erl_exit(1, "no next heap size found: %beu, offset %beu\n", size, offset);
     }
     return 0;
 }
