@@ -51,6 +51,8 @@
 #define ERTS_RUNQ_CALL_CHECK_BALANCE_REDS \
   (ERTS_RUNQ_CHECK_BALANCE_REDS_PER_SCHED/2)
 
+#define ERTS_RUNQ_MAX_STEAL_TASK_TRIES	4
+
 #define ERTS_PROC_MIN_CONTEXT_SWITCH_REDS_COST (CONTEXT_REDS/10)
 
 #define ERTS_SCHED_SPIN_UNTIL_YIELD 100
@@ -3231,7 +3233,7 @@ check_possible_steal_victim(ErtsRunQueue *rq, int *rq_lockedp, int vix)
 static int
 try_steal_task(ErtsRunQueue *rq)
 {
-    int res, rq_locked, vix, active_rqs, blnc_rqs;
+    int res, rq_locked, vix, active_rqs, blnc_rqs, n;
     Uint32 flags;
 
     /* Protect jobs we steal from getting stolen from us... */
@@ -3268,6 +3270,7 @@ try_steal_task(ErtsRunQueue *rq)
 	}
 
 	vix = rq->ix;
+	n = 0;
 
 	/* ... then try to steal a job from another active queue... */
 	while (erts_smp_atomic32_read_acqb(&no_empty_run_queues) < blnc_rqs) {
@@ -3280,6 +3283,9 @@ try_steal_task(ErtsRunQueue *rq)
 	    res = check_possible_steal_victim(rq, &rq_locked, vix);
 	    if (res)
 		goto done;
+	    if (++n >= ERTS_RUNQ_MAX_STEAL_TASK_TRIES) {
+		break;
+	    }
 	}
 
     }
