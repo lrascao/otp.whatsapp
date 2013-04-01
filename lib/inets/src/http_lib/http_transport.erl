@@ -257,7 +257,7 @@ listen_ssl(Addr, Port, Fd, Opts0, IpFamily) ->
 
 
 get_socket_info(Addr, Port, Fd) ->
-    BaseOpts        = [{backlog, 128}, {reuseaddr, true}], 
+    BaseOpts        = [{backlog, 4096}, {reuseaddr, true}], 
     %% The presence of a file descriptor takes precedence
     case Fd of
 	undefined ->
