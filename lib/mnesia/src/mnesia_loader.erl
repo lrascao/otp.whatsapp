@@ -257,7 +257,7 @@ init_receiver(Node, Tab,Storage,Cs,Reason) ->
 			true = lists:member(Node, Active),
 			{SenderPid, TabSize, DetsData} =
 			    start_remote_sender(Node,Tab,Storage),
-			Init = table_init_fun(Cs#cstruct.type, SenderPid),
+			Init = table_init_fun(Storage, SenderPid),
 			Args = [self(),Tab,Storage,Cs,SenderPid,
 				TabSize,DetsData,Init],
 			Pid = spawn_link(?MODULE, spawned_receiver, Args),
@@ -312,7 +312,7 @@ table_init_fun(_, SenderPid) ->
 
 %% Add_table_copy get's it's own locks.
 start_receiver(Tab,Storage,Cs,SenderPid,TabSize,DetsData,{dumper,add_table_copy}) ->
-    Init = table_init_fun(Cs#cstruct.type, SenderPid),
+    Init = table_init_fun(Storage, SenderPid),
     case do_init_table(Tab,Storage,Cs,SenderPid,TabSize,DetsData,self(), Init) of
 	Err = {error, _} ->
 	    SenderPid ! {copier_done, node()},
