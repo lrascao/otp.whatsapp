@@ -24,6 +24,7 @@
 -export([start/0,start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,
          terminate/2]).
 -export([sync/0]).
+-export([local_monitor/0, get_local_groups/0]).
 
 %%% As of R13B03 monitors are used instead of links.
 
@@ -157,11 +158,14 @@ get_closest_pid(Name) ->
 sync () ->
     gen_server:call(?MODULE, sync).
 
+local_monitor () ->
+    gen_server:call(?MODULE, {local_monitor, self()}).
+
 %%%
 %%% Callback functions from gen_server
 %%%
 
--record(state, {}).
+-record(state, {local_monitors = []}).
 
 -type state() :: #state{}.
 
@@ -189,17 +193,26 @@ handle_call({create, Name}, _From, S) ->
     assure_group(Name),
     {reply, ok, S};
 handle_call({join, Name, Pid}, _From, S) ->
-    ets:member(pg2_table, {group, Name}) andalso join_group(Name, Pid),
+    ets:member(pg2_table, {group, Name}) andalso notify(join_group(Name, Pid), S),
     {reply, ok, S};
 handle_call({leave, Name, Pid}, _From, S) ->
-    ets:member(pg2_table, {group, Name}) andalso leave_group(Name, Pid),
+    ets:member(pg2_table, {group, Name}) andalso notify(leave_group(Name, Pid), S),
     {reply, ok, S};
 handle_call({delete, Name}, _From, S) ->
-    delete_group(Name),
+    notify(delete_group(Name), S),
     {reply, ok, S};
 handle_call(sync, _From, S) ->
     sync_groups(),
     {reply, ok, S};
+handle_call({local_monitor, Pid}, _From, S) ->
+    {Res, NewS} = case lists:member(Pid, S#state.local_monitors) of
+		      true ->
+			  {already_present, S};
+		      false ->
+			  do_monitor(Pid),
+			  {ok, S#state{local_monitors = [Pid | S#state.local_monitors]}}
+		  end,
+    {reply, Res, NewS};
 handle_call(Request, From, S) ->
     error_logger:warning_msg("The pg2 server received an unexpected message:\n"
                              "handle_call(~p, ~p, _)\n", 
@@ -221,9 +234,14 @@ handle_cast(_, S) ->
 -spec handle_info(Tuple :: tuple(), State :: state()) ->
     {'noreply', state()}.
 
-handle_info({'DOWN', MonitorRef, process, _Pid, _Info}, S) ->
-    member_died(MonitorRef),
-    {noreply, S};
+handle_info({'DOWN', MonitorRef, process, Pid, _Info}, S) ->
+    NewS = case lists:member(Pid, S#state.local_monitors) of
+	       true ->
+		   S#state{local_monitors = lists:delete(Pid, S#state.local_monitors)};
+	       false ->
+		   notify(member_died(MonitorRef), S)
+	   end,
+    {noreply, NewS};
 handle_info({nodeup, Node}, S) ->
     gen_server:cast({?MODULE, Node}, {exchange, node(), all_members()}),
     {noreply, S};
@@ -281,7 +299,7 @@ delete_group(Name) ->
     true = ets:delete(pg2_table, {group, Name}),
     true = ets:delete(pg2_table, {group_members, Name}),
     true = ets:delete(pg2_table, {local_group_members, Name}),
-    ok.
+    [Name].
 
 member_died(Ref) ->
     [{{ref, Ref}, Pid}] = ets:lookup(pg2_table, {ref, Ref}),
@@ -292,7 +310,7 @@ member_died(Ref) ->
     %% Kept for backward compatibility with links. Can be removed, eventually.
     _ = [gen_server:abcast(nodes(), ?MODULE, {del_member, Name, Pid}) ||
             Name <- Names],
-    ok.
+    Names.
 
 join_group(Name, Pid) ->
     Ref_Pid = {ref, Pid}, 
@@ -310,7 +328,8 @@ join_group(Name, Pid) ->
                     node(Pid) =:= node()],
             true = ets:insert(pg2_table, {{pid, Pid, Name}})
     end,
-    sync_group_members(Name).
+    sync_group_members(Name),
+    [Name].
 
 leave_group(Name, Pid) ->
     Member_Name_Pid = {member, Name, Pid},
@@ -336,9 +355,10 @@ leave_group(Name, Pid) ->
                 _ ->
                     ok
             end,
-	    sync_group_members(Name)
+	    sync_group_members(Name),
+	    [Name]
     catch _:_ ->
-            ok
+            []
     end.
 
 sync_groups () ->
@@ -423,3 +443,9 @@ do_monitor(Pid) ->
                 end,
             erlang:spawn_monitor(F)
     end.
+
+notify (Updates, S) ->
+    [ P ! {pg2_update, Updates} || P <- S#state.local_monitors ].
+
+get_local_groups () ->
+    ets:select(pg2_table, [{{{local_group_members, '$1'}, '$2'}, [{'>', {'length', '$2'}, 0}], ['$1']}]).
