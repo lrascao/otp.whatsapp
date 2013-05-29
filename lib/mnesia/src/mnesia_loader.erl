@@ -189,7 +189,19 @@ try_net_load_table(Tab, _Reason, [], _Cs) ->
     {not_loaded, none_active};
 try_net_load_table(Tab, Reason, Ns, Cs) ->
     Storage = mnesia_lib:cs_to_storage_type(node(), Cs),
-    do_get_network_copy(Tab, Reason, Ns, Storage, Cs).
+    SortedNs = sort_by_distance(Ns),
+    verbose("Loading ~p from ~1000p~n", [Tab, SortedNs]),
+    do_get_network_copy(Tab, Reason, SortedNs, Storage, Cs).
+
+sort_by_distance (Ns) ->
+    TNs = lists:map(fun (N) ->
+			     [_App, Hostname] = string:tokens(atom_to_list(N), "@"),
+			     {Rtt, _Result} = timer:tc(erl_epmd, names, [Hostname]),
+			     {Rtt div 10000, N}
+		    end,
+		    Ns),
+    SortedTNs = lists:sort(fun ({T1, _N1}, {T2, _N2}) -> T1 < T2 end, TNs),
+    [ N || {_T, N} <- SortedTNs ].
 
 do_get_network_copy(Tab, _Reason, _Ns, unknown, _Cs) ->
     verbose("Local table copy of ~p has recently been deleted, ignored.~n", [Tab]),
