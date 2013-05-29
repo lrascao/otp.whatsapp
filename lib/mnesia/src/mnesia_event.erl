@@ -188,6 +188,7 @@ handle_system_event(Msg, State) ->
 report_info(Format0, Args0) ->
     Format = "Mnesia(~p): " ++ Format0,
     Args = [node() | Args0],
+    error_logger:info_msg(Format, Args),
     case global:whereis_name(mnesia_global_logger) of
 	undefined ->
 	    io:format(Format, Args);
