@@ -239,7 +239,8 @@ handle_info({'DOWN', MonitorRef, process, Pid, _Info}, S) ->
 	       true ->
 		   S#state{local_monitors = lists:delete(Pid, S#state.local_monitors)};
 	       false ->
-		   notify(member_died(MonitorRef), S)
+		   notify(member_died(MonitorRef), S),
+		   S
 	   end,
     {noreply, NewS};
 handle_info({nodeup, Node}, S) ->
