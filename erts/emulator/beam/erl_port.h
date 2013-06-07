@@ -187,6 +187,7 @@ struct _erl_drv_port {
 
     ErtsPrtSD *psd;		 /* Port specific data */
     int reds; /* Only used while executing driver callbacks */
+    BeamInstr* mark;		 /* Mark for recv optimization */
 };
 
 #define ERTS_PORT_GET_CONNECTED(PRT) \

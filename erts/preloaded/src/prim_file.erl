@@ -1101,6 +1101,7 @@ drv_command(Port, Command, R) ->
 
 drv_command(Port, Command, Validated, R) when is_port(Port) ->
     Save = erlang:dt_spread_tag(false),
+    erlang:process_flag(port_receive_mark, Port),
     try erlang:port_command(Port, erlang:dt_append_vm_tag_data(Command)) of
 	true ->
 	    drv_get_response(Port, R)
@@ -1134,6 +1135,7 @@ drv_command({Driver, Portopts}, Command, Validated, R) ->
     end.
 drv_command_nt(Port, Command, R) when is_port(Port) ->
     Save = erlang:dt_spread_tag(false),
+    erlang:process_flag(port_receive_mark, Port),
     try erlang:port_command(Port, Command) of
 	true ->
 	    drv_get_response(Port, R)
@@ -1164,6 +1166,7 @@ drv_get_response(Port, Fun) when is_function(Fun, 1) ->
 
 drv_get_response(Port) ->
     erlang:bump_reductions(100),
+    erlang:process_flag(port_receive_set, Port),
     receive
 	{Port, {data, [Response|Rest] = Data}} ->
 	    try translate_response(Response, Rest)

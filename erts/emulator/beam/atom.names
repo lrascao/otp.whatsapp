@@ -433,6 +433,8 @@ atom port
 atom ports
 atom port_count
 atom port_limit
+atom port_receive_mark
+atom port_receive_set
 atom prepend
 atom print
 atom priority

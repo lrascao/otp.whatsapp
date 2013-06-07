@@ -1686,6 +1686,28 @@ BIF_RETTYPE process_flag_2(BIF_ALIST_2)
 	   goto error;
        BIF_RET(old_value);
    }
+   else if (BIF_ARG_1 == am_port_receive_mark) {
+       Port* prt;
+       prt = erts_port_lookup(BIF_ARG_2, ERTS_PORT_SFLGS_INVALID_LOOKUP);
+       if (!prt) {
+	   BIF_RET(am_badarg);
+       }
+       BIF_P->msg.mark = prt->mark = BIF_P->i;
+       BIF_P->msg.saved_last = BIF_P->msg.last;
+       BIF_RET(am_true);
+   }
+   else if (BIF_ARG_1 == am_port_receive_set) {
+       Port* prt;
+       prt = erts_port_lookup(BIF_ARG_2, ERTS_PORT_SFLGS_INVALID_LOOKUP);
+       if (!prt) {
+	   BIF_RET(am_badarg);
+       }
+       if (BIF_P->msg.mark != prt->mark) {
+	   BIF_RET(am_false);
+       }
+       BIF_P->msg.save = BIF_P->msg.saved_last;
+       BIF_RET(am_true);
+   }
    else if (is_tuple(BIF_ARG_1)) {
        /*
 	* This argument is intentionally *not* documented. It is intended
