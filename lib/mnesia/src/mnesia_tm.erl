@@ -51,9 +51,13 @@
 	]).
 
 -export([
-	 init_async_dirty_tm/2
+	 mnesia_up/1,
+	 init_async_dirty_tm/2,
+	 init_async_dirty_tm_sender/3
         ]).
 -define(NUM_ASYNC_DIRTY_TM, 32).
+-define(NUM_ASYNC_DIRTY_TM_SENDER, 4).
+-define(ASYNC_DIRTY_TM_SENDER_TIMEOUT, 10000).
 
 
 -include("mnesia.hrl").
@@ -78,7 +82,7 @@
 		      ram_nodes = [], protocol = sym_trans}).
 
 start() ->
-    [ mnesia_monitor:start_proc(?MODULE, ?MODULE, init_async_dirty_tm, [I, self()]) || I <- lists:seq(1, ?NUM_ASYNC_DIRTY_TM) ],
+    [ mnesia_monitor:start_proc({?MODULE, I}, ?MODULE, init_async_dirty_tm, [I, self()]) || I <- lists:seq(1, ?NUM_ASYNC_DIRTY_TM) ],
     mnesia_monitor:start_proc(?MODULE, ?MODULE, init, [self()]).
 
 init(Parent) ->
@@ -187,6 +191,9 @@ tmpid({Pid, _Ref}) when is_pid(Pid) ->
     Pid;
 tmpid(Pid) ->
     Pid.
+
+mnesia_up (Node) ->
+    ?MODULE ! {mnesia_up, Node}.
 
 %% Returns a list of participant transaction Tid's
 mnesia_down(Node) ->
@@ -413,8 +420,27 @@ doit_loop(#state{coordinators=Coordinators,participants=Participants,supervisor=
 	    reply(From, {info, gb_trees:values(Participants),
 			 gb_trees:to_list(Coordinators)}, State);
 
+	{mnesia_up, Node} ->
+	    verbose("Got mnesia_up from ~p, starting async_dirty senders ...~n", [Node]),
+	    lists:foreach(fun (I) ->
+				   Sender = node_num_to_async_dirty_tm_sender_name(Node, I),
+				   mnesia_monitor:start_proc(Sender, ?MODULE, init_async_dirty_tm_sender, [Node, I, self()])
+			  end,
+			  lists:seq(1, ?NUM_ASYNC_DIRTY_TM_SENDER)),
+	    doit_loop(State);
+
 	{mnesia_down, N} ->
 	    verbose("Got mnesia_down from ~p, reconfiguring...~n", [N]),
+	    lists:foreach(fun (I) ->
+				   Sender = node_num_to_async_dirty_tm_sender_name(N, I),
+ 				   case whereis(Sender) of
+ 				       Pid when is_pid(Pid) ->
+					   erlang:send(Pid, {mnesia_down, N}, [prepend]);
+ 				       _ ->
+ 					   skip
+ 				   end
+			  end,
+			  lists:seq(1, ?NUM_ASYNC_DIRTY_TM_SENDER)),
 	    reconfigure_coordinators(N, gb_trees:to_list(Coordinators)),
 
 	    Tids = gb_trees:keys(Participants),
@@ -495,11 +521,13 @@ do_async_dirty(Tid, Commit, _Tab) ->
     ?eval_debug_fun({?MODULE, async_dirty, post}, [{tid, Tid}]).
 
 tab_to_async_dirty_tm_name (Tab) when is_atom(Tab) ->
-    num_to_async_dirty_tm_name(tab_to_async_dirty_tm_num(atom_to_list(Tab))).
+    num_to_async_dirty_tm_name(tab_to_async_dirty_tm_num(Tab)).
 
 num_to_async_dirty_tm_name (N) when is_integer(N) ->
     list_to_atom("mnesia_tm_" ++ integer_to_list(N)).
 
+tab_to_async_dirty_tm_num (Tab) when is_atom(Tab) ->
+    tab_to_async_dirty_tm_num(atom_to_list(Tab));
 tab_to_async_dirty_tm_num ([]) ->
     1;
 tab_to_async_dirty_tm_num ([$_ | S]) ->
@@ -2039,12 +2067,77 @@ async_send_dirty(Tid, [Head | Tail], Tab, ReadNode, WaitFor, Res) ->
 	    NewRes = {'EXIT', {aborted, {node_not_running, Node}}},
 	    async_send_dirty(Tid, Tail, Tab, ReadNode, [Node | WaitFor], NewRes);
 	true ->
-	    Name = tab_to_async_dirty_tm_name(Tab),
-	    {Name, Node} ! {self(), {async_dirty, Tid, Head, Tab}},
+	    Num = tab_to_async_dirty_tm_num(Tab),
+	    Sender = node_num_to_async_dirty_tm_sender_name(Node, Num),
+	    TmName = num_to_async_dirty_tm_name(Num),
+	    Txn = {self(), {async_dirty, Tid, Head, Tab}},
+	    case whereis(Sender) of
+		SenderPid when is_pid(SenderPid) ->
+		    SenderPid ! {async_dirty, TmName, Txn};
+		_ ->
+		    % assume there are no async_dirty tm's; send to mnesia_tm
+		    {?MODULE, Node} ! Txn
+	    end,
 	    async_send_dirty(Tid, Tail, Tab, ReadNode, WaitFor, Res)
     end;
 async_send_dirty(_Tid, [], _Tab, _ReadNode, WaitFor, Res) ->
     {WaitFor, Res}.
+
+node_num_to_async_dirty_tm_sender_name (Node, Num) ->
+    list_to_atom("ms" ++ integer_to_list(((Num-1) rem ?NUM_ASYNC_DIRTY_TM_SENDER)+1) ++ ":" ++ atom_to_list(Node)).
+
+init_async_dirty_tm_sender (Node, Num, Parent) ->
+    proc_lib:init_ack(Parent, {ok, self()}),
+    init_async_dirty_tm_sender_loop(Node, Num, Parent).
+
+init_async_dirty_tm_sender_loop (Node, Num, Parent) ->
+    case check_remote_tm(Node) of
+	ok ->
+	    Sender = node_num_to_async_dirty_tm_sender_name(Node, Num),
+	    case catch register(Sender, self()) of
+		true ->
+		    verbose("~p: mnesia_tm async_dirty sender registered (~p)~n", [Sender, self()]),
+	    	    async_dirty_sender_loop(Node, Parent);
+		{'EXIT', Reason} ->
+		    case whereis(Sender) of
+			Pid when is_pid(Pid) ->
+			    verbose("~p: mnesia_tm async_dirty sender already running (~p)~n", [Sender, Pid]),
+			    unlink(Parent),
+			    exit(shutdown);
+			_ ->
+			    verbose("~p: mnesia_tm async_dirty sender registration failure: ~p~n", [Sender, Reason]),
+			    exit(registration_failure)
+		    end
+	    end;
+	_ ->
+	    timer:sleep(60*1000),
+	    init_async_dirty_tm_sender_loop(Node, Num, Parent)
+    end.
+    
+check_remote_tm (Node) ->
+    try sys:get_status({num_to_async_dirty_tm_name(1), Node}, ?ASYNC_DIRTY_TM_SENDER_TIMEOUT) of
+	{status, _Pid, _Mod, _Stuff} ->
+	    ok;
+	Other ->
+	    verbose("bad remote mnesia_tm response (node=~p): ~1000p~n", [Node, Other]),
+	    {error, invalid_response}
+    catch
+	_:Err ->
+	    verbose("** ERROR ** Possible OTP version mismatch: remote mnesia_tm not responding (node=~p): ~1000p~n", [Node, Err]),
+	    {error, Err}
+    end.
+
+async_dirty_sender_loop (Node, Parent) ->
+    receive
+	{mnesia_down, Node} ->
+	    unlink(Parent),
+	    exit(shutdown);
+	{async_dirty, TmName, Txn} ->
+	    {TmName, Node} ! Txn;
+	Other ->
+	    verbose("mnesia_tm async_dirty sender unknown message: ~1000p~n", [Other])
+    end,
+    async_dirty_sender_loop(Node, Parent).
 
 rec_dirty([Node | Tail], Res) when Node /= node() ->
     NewRes = get_dirty_reply(Node, Res),
