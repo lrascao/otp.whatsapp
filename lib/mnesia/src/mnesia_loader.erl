@@ -190,7 +190,7 @@ try_net_load_table(Tab, _Reason, [], _Cs) ->
 try_net_load_table(Tab, Reason, Ns, Cs) ->
     Storage = mnesia_lib:cs_to_storage_type(node(), Cs),
     SortedNs = sort_by_distance(Ns),
-    verbose("Loading ~p from ~1000p~n", [Tab, SortedNs]),
+    dbg_out("Loading ~p from ~1000p~n", [Tab, SortedNs]),
     do_get_network_copy(Tab, Reason, SortedNs, Storage, Cs).
 
 sort_by_distance (Ns) ->
@@ -220,7 +220,7 @@ do_get_network_copy(Tab, Reason, Ns, Storage, Cs) ->
 		    set({Tab, load_node}, Node),
 		    set({Tab, load_reason}, Reason),
 		    mnesia_controller:i_have_tab(Tab),
-		    dbg_out("Table ~p copied from ~p to ~p~n", [Tab, Node, node()]),
+		    verbose("Table ~p copied from ~p to ~p (~b entries)~n", [Tab, Node, node(), mnesia:table_info(Tab, size)]),
 		    {loaded, ok};
 		Err = {error, _} when element(1, Reason) == dumper ->
 		    {not_loaded,Err};
@@ -356,7 +356,7 @@ wait_on_load_complete(Pid) ->
 
 do_init_table(Tab,Storage,Cs,SenderPid,
 	      TabSize,DetsInfo,OrigTabRec,Init) ->
-    verbose("Init table ~p started~n", [Tab]),
+    dbg_out("Init table ~p started~n", [Tab]),
     case create_table(Tab, TabSize, Storage, Cs) of
 	{Storage,Tab} ->
 	    %% Debug info
@@ -489,7 +489,7 @@ init_table(Tab, _, Fun, _DetsInfo,_) ->
 
 finish_copy(Storage,Tab,Cs,SenderPid,DatBin,OrigTabRec,TabEvents) ->
     TabRef = {Storage, Tab},
-    verbose("Finish table copy ~p: ~b queued table events~n", [Tab, length(TabEvents)]),
+    dbg_out("Finish table copy ~p: ~b queued table events~n", [Tab, length(TabEvents)]),
     handle_table_events(TabRef, Cs#cstruct.record_name, TabEvents),
     subscr_receiver(TabRef, Cs#cstruct.record_name),
     case handle_last(TabRef, Cs#cstruct.type, DatBin) of
