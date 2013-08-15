@@ -377,13 +377,14 @@ struct erl_drv_entry efile_driver_entry = {
 
 
 static int thread_short_circuit;
+static int async_round_robin;
 
 #define DRIVER_ASYNC(level, desc, f_invoke, data, f_free) \
 if (thread_short_circuit >= (level)) { \
     (*(f_invoke))(data); \
     file_async_ready((ErlDrvData)(desc), (data)); \
 } else { \
-    driver_async((desc)->port, KEY(desc), (f_invoke), (data), (f_free)); \
+    driver_async((desc)->port, async_round_robin ? NULL : KEY(desc), (f_invoke), (data), (f_free)); \
 }
 
 
@@ -736,6 +737,11 @@ file_init(void)
 					   &bufsz) == 0
 			    ? atoi(buf)
 			    : 0);
+    async_round_robin = (erl_drv_getenv("ERL_EFILE_ASYNC_ROUND_ROBIN",
+					buf,
+					&bufsz) == 0
+			 ? atoi(buf)
+			 : 0);
     driver_system_info(&sys_info, sizeof(ErlDrvSysInfo));
 
 #ifdef  USE_VM_PROBES
