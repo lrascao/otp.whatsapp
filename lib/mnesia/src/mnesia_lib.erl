@@ -304,23 +304,46 @@ exists(Fname) ->
 
 dir() -> mnesia_monitor:get_env(dir).
 
+dir([Tab, Ext]) when is_atom(Tab) ->
+    TabStr = atom_to_list(Tab),
+    Fname = lists:concat([TabStr, Ext]),
+    case catch mnesia_monitor:get_env(multi_dir) of
+	Width when is_integer(Width) ->
+	    FragNum = get_frag_num(TabStr),
+	    DirNum = (FragNum-1) rem Width,
+	    filename:join([dir(), io_lib:format("~2.16.0b", [DirNum]), Fname]);
+	_ ->
+	    dir(Fname)
+    end;
 dir(Fname) ->
     filename:join([dir(), to_list(Fname)]).
 
 tab2dat(Tab) ->  %% DETS files 
-    dir(lists:concat([Tab, ".DAT"])).
+    dir([Tab, ".DAT"]).
 
 tab2tmp(Tab) ->
-    dir(lists:concat([Tab, ".TMP"])).
+    dir([Tab, ".TMP"]).
 
 tab2dmp(Tab) ->  %% Dumped ets tables
-    dir(lists:concat([Tab, ".DMP"])).
+    dir([Tab, ".DMP"]).
 
 tab2dcd(Tab) ->  %% Disc copies data
-    dir(lists:concat([Tab, ".DCD"])).
+    dir([Tab, ".DCD"]).
 
 tab2dcl(Tab) ->  %% Disc copies log
-    dir(lists:concat([Tab, ".DCL"])).
+    dir([Tab, ".DCL"]).
+
+get_frag_num ([]) ->
+    1;
+get_frag_num ([$_, $f, $r, $a, $g | Tail]) ->
+    case catch list_to_integer(Tail) of
+	N when is_integer(N) ->
+	    N;
+	_ ->
+	    get_frag_num(Tail)
+    end;
+get_frag_num ([_ | Tail]) ->
+    get_frag_num(Tail).
 
 storage_type_at_node(Node, Tab) ->
     search_key(Node, [{disc_copies, val({Tab, disc_copies})},

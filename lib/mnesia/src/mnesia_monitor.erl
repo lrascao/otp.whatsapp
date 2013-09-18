@@ -726,6 +726,8 @@ default_env(no_table_loaders) ->
 default_env(dc_dump_limit) ->
     4;
 default_env(send_compressed) ->
+    0;
+default_env(multi_dir) ->
     0.
 
 check_type(Env, Val) ->
@@ -772,7 +774,8 @@ do_check_type(pid_sort_order, "standard") -> standard;
 do_check_type(pid_sort_order, _) -> false;
 do_check_type(no_table_loaders, N) when is_integer(N), N > 0 -> N;
 do_check_type(dc_dump_limit,N) when is_number(N), N > 0 -> N;
-do_check_type(send_compressed, L) when is_integer(L), L >= 0, L =< 9 -> L.
+do_check_type(send_compressed, L) when is_integer(L), L >= 0, L =< 9 -> L;
+do_check_type(multi_dir, N) when is_integer(N), N >= 0 -> N.
 
 bool(true) -> true;
 bool(false) -> false.
