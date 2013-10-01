@@ -45,7 +45,7 @@ init([]) ->
 	       supervisor_spec(mnesia_snmp_sup),
 	       worker_spec(mnesia_controller, timer:seconds(3), [gen_server]),
 	       worker_spec(mnesia_late_loader, timer:seconds(3), ProcLib)
-	      ],
+	      ] ++ mnesia_tm:get_aux_workers(),
     {ok, {Flags, Workers}}.
 
 worker_spec(Name, KillAfter, Modules) ->
