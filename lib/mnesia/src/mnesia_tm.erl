@@ -52,6 +52,8 @@
 
 -export([
 	 mnesia_up/1,
+	 get_aux_workers/0,
+	 start_async_dirty_tm/1,
 	 init_async_dirty_tm/2,
 	 init_async_dirty_tm_sender/3
         ]).
@@ -65,7 +67,8 @@
 -import(mnesia_lib, [fatal/2, verbose/2, dbg_out/2]).
 
 -record(state, {coordinators = gb_trees:empty(), participants = gb_trees:empty(), supervisor,
-		blocked_tabs = [], dirty_queue = [], fixed_tabs = []}).
+		blocked_tabs = [], dirty_queue = [], fixed_tabs = [],
+		async_dirty_tm}).
 %% Format on coordinators is [{Tid, EtsTabList} .....
 
 -record(prep, {protocol = sym_trans,
@@ -82,7 +85,6 @@
 		      ram_nodes = [], protocol = sym_trans}).
 
 start() ->
-    [ mnesia_monitor:start_proc({?MODULE, I}, ?MODULE, init_async_dirty_tm, [I, self()]) || I <- lists:seq(1, ?NUM_ASYNC_DIRTY_TM) ],
     mnesia_monitor:start_proc(?MODULE, ?MODULE, init, [self()]).
 
 init(Parent) ->
@@ -128,10 +130,17 @@ init(Parent) ->
     proc_lib:init_ack(Parent, {ok, self()}),
     doit_loop(#state{supervisor = Parent}).
 
+get_aux_workers () ->
+    [ {num_to_async_dirty_tm_name(I), {?MODULE, start_async_dirty_tm, [I]}, permanent, timer:hours(24), worker, [?MODULE, proc_lib, mnesia_monitor]} || I <- lists:seq(1, ?NUM_ASYNC_DIRTY_TM) ]. 
+
+start_async_dirty_tm (I) ->
+    mnesia_monitor:start_proc(num_to_async_dirty_tm_name(I), ?MODULE, init_async_dirty_tm, [I, self()]).
+
 init_async_dirty_tm (I, Parent) ->
     register(num_to_async_dirty_tm_name(I), self()),
+    process_flag(trap_exit, true),
     proc_lib:init_ack(Parent, {ok, self()}),
-    doit_loop(#state{supervisor = Parent}).    
+    doit_loop(#state{supervisor = Parent, async_dirty_tm = I}).    
 
 val(Var) ->
     case ?catch_val(Var) of
@@ -601,9 +610,12 @@ handle_exit(Pid, _Reason, State) when node(Pid) /= node() ->
     %% We got exit from a remote fool
     doit_loop(State);
 
-handle_exit(Pid, _Reason, State) when Pid == State#state.supervisor ->
+handle_exit(Pid, _Reason, State) when Pid == State#state.supervisor, State#state.async_dirty_tm == undefined ->
     %% Our supervisor has died, time to stop
     do_stop(State);
+handle_exit(Pid, _Reason, State) when Pid == State#state.supervisor ->
+    %% Our supervisor has died, time to stop
+    exit(shutdown);
 
 handle_exit(Pid, Reason, State) ->
     %% Check if it is a coordinator
