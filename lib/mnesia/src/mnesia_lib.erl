@@ -308,7 +308,7 @@ dir([Tab, Ext]) when is_atom(Tab) ->
     TabStr = atom_to_list(Tab),
     Fname = lists:concat([TabStr, Ext]),
     case catch mnesia_monitor:get_env(multi_dir) of
-	Width when is_integer(Width) ->
+	Width when is_integer(Width) andalso Width > 0 ->
 	    FragNum = get_frag_num(TabStr),
 	    DirNum = (FragNum-1) rem Width,
 	    filename:join([dir(), io_lib:format("~2.16.0b", [DirNum]), Fname]);
