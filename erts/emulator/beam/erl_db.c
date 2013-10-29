@@ -133,7 +133,7 @@ static Uint meta_main_tab_seq_cnt = 0;  /* To give unique(-ish) table identifier
 ** The meta hash table of all NAMED ets tables
 */
 #ifdef ERTS_SMP
-#  define META_NAME_TAB_LOCK_CNT 16
+#  define META_NAME_TAB_LOCK_CNT 9973
 union {
     erts_smp_rwmtx_t lck;
     byte _cache_line_alignment[64];
