@@ -45,6 +45,7 @@
 
 
 erts_smp_atomic_t erts_ets_misc_mem_size;
+static int db_max_tabs;
 
 /*
 ** Utility macros
@@ -77,26 +78,22 @@ enum DbIterSafety {
 /* 
 ** The main meta table, containing all ets tables.
 */
-#ifdef ERTS_SMP
 
-#define ERTS_META_MAIN_TAB_LOCK_TAB_BITS 8
-#define ERTS_META_MAIN_TAB_LOCK_TAB_SIZE (1 << ERTS_META_MAIN_TAB_LOCK_TAB_BITS)
-#define ERTS_META_MAIN_TAB_LOCK_TAB_MASK (ERTS_META_MAIN_TAB_LOCK_TAB_SIZE - 1)
-
-typedef union {
-    erts_smp_rwmtx_t rwmtx;
-    byte cache_line_align__[ERTS_ALC_CACHE_LINE_ALIGN_SIZE(
-				sizeof(erts_smp_rwmtx_t))];
-} erts_meta_main_tab_lock_t;
-
-static erts_meta_main_tab_lock_t *meta_main_tab_locks;
-
-#endif
-static struct {
+struct meta_main_tab_entry {
     union {
 	DbTable *tb;     /* Only directly readable if slot is ALIVE */
 	UWord next_free;  /* (index<<2)|1 if slot is FREE */
-    }u;
+    } u;
+#ifdef ERTS_SMP
+    erts_smp_rwmtx_t rwmtx;
+#endif
+} meta_main_tab_entry;
+
+static union {
+    struct meta_main_tab_entry e;
+#ifdef ERTS_SMP
+    byte cache_line_align__[ERTS_ALC_CACHE_LINE_ALIGN_SIZE(sizeof(meta_main_tab_entry))];
+#endif
 } *meta_main_tab;
 
 /* A slot in meta_main_tab can have three states:
@@ -104,19 +101,21 @@ static struct {
  * ALIVE: Contains a table
  * DEAD : Contains a table that is being removed.
  */
-#define IS_SLOT_FREE(i)	(meta_main_tab[(i)].u.next_free & 1)
-#define IS_SLOT_DEAD(i) (meta_main_tab[(i)].u.next_free & 2)
-#define IS_SLOT_ALIVE(i) (!(meta_main_tab[(i)].u.next_free & (1|2)))
-#define GET_NEXT_FREE_SLOT(i) (meta_main_tab[(i)].u.next_free >> 2)
-#define SET_NEXT_FREE_SLOT(i,next) (meta_main_tab[(i)].u.next_free = ((next)<<2)|1)
-#define MARK_SLOT_DEAD(i) (meta_main_tab[(i)].u.next_free |= 2)
-#define GET_ANY_SLOT_TAB(i) ((DbTable*)(meta_main_tab[(i)].u.next_free & ~(1|2))) /* dead or alive */
+#define IS_SLOT_FREE(i)	(meta_main_tab[(i)].e.u.next_free & 1)
+#define IS_SLOT_DEAD(i) (meta_main_tab[(i)].e.u.next_free & 2)
+#define IS_SLOT_ALIVE(i) (!(meta_main_tab[(i)].e.u.next_free & (1|2)))
+#define GET_NEXT_FREE_SLOT(i) (meta_main_tab[(i)].e.u.next_free >> 2)
+#define SET_NEXT_FREE_SLOT(i,next) (meta_main_tab[(i)].e.u.next_free = ((next)<<2)|1)
+#define MARK_SLOT_DEAD(i) (meta_main_tab[(i)].e.u.next_free |= 2)
+#define GET_ANY_SLOT_TAB(i) ((DbTable*)(meta_main_tab[(i)].e.u.next_free & ~(1|2))) /* dead or alive */
+
+#define ID_TO_SLOT(id) ((id) % db_max_tabs)
 
 static ERTS_INLINE erts_smp_rwmtx_t *
 get_meta_main_tab_lock(unsigned slot)
 {
 #ifdef ERTS_SMP
-    return &meta_main_tab_locks[slot & ERTS_META_MAIN_TAB_LOCK_TAB_MASK].rwmtx;
+    return &meta_main_tab[slot].e.rwmtx;
 #else
     return NULL;
 #endif
@@ -125,21 +124,13 @@ get_meta_main_tab_lock(unsigned slot)
 static erts_smp_spinlock_t meta_main_tab_main_lock;
 static Uint meta_main_tab_first_free;   /* Index of first free slot */
 static int meta_main_tab_cnt;		/* Number of active tables */
-static Uint meta_main_tab_slot_mask;    /* The slot index part of an unnamed table id */
 static Uint meta_main_tab_seq_incr;
 static Uint meta_main_tab_seq_cnt = 0;  /* To give unique(-ish) table identifiers */
 
 /* 
 ** The meta hash table of all NAMED ets tables
 */
-#ifdef ERTS_SMP
-#  define META_NAME_TAB_LOCK_CNT 9973
-union {
-    erts_smp_rwmtx_t lck;
-    byte _cache_line_alignment[64];
-}meta_name_tab_rwlocks[META_NAME_TAB_LOCK_CNT];
-#endif
-static struct meta_name_tab_entry {
+struct meta_name_tab_entry {
     union {
 	Eterm name_atom;
 	Eterm mcnt; /* Length of mvec in multiple tab entry */
@@ -148,18 +139,30 @@ static struct meta_name_tab_entry {
 	DbTable *tb;
 	struct meta_name_tab_entry* mvec;
     }pu;
-} *meta_name_tab;
+};
 
-static unsigned meta_name_tab_mask;
+struct meta_name_tab_head {
+    struct meta_name_tab_entry e;
+#ifdef ERTS_SMP
+    erts_smp_rwmtx_t lck;
+#endif
+};
+
+static union {
+    struct meta_name_tab_head head;
+#ifdef ERTS_SMP
+    byte cache_line_align__[ERTS_ALC_CACHE_LINE_ALIGN_SIZE(sizeof(struct meta_name_tab_head))];
+#endif
+} *meta_name_tab;
 
 static ERTS_INLINE
 struct meta_name_tab_entry* meta_name_tab_bucket(Eterm name, 
 						 erts_smp_rwmtx_t** lockp)
 {
-    unsigned bix = atom_val(name) & meta_name_tab_mask;
-    struct meta_name_tab_entry* bucket = &meta_name_tab[bix];
+    unsigned bix = atom_val(name) % db_max_tabs;
+    struct meta_name_tab_entry* bucket = &meta_name_tab[bix].head.e;
 #ifdef ERTS_SMP
-    *lockp = &meta_name_tab_rwlocks[bix % META_NAME_TAB_LOCK_CNT].lck;
+    *lockp = &meta_name_tab[bix].head.lck;
 #endif
     return bucket;
 }    
@@ -178,7 +181,6 @@ extern DbTableMethod db_tree;
 int user_requested_db_max_tabs;
 int erts_ets_realloc_always_moves;
 int erts_ets_always_compress;
-static int db_max_tabs;
 static DbTable *meta_pid_to_tab; /* Pid mapped to owned tables */
 static DbTable *meta_pid_to_fixed_tab; /* Pid mapped to fixed tables */
 static Eterm ms_delete_all;
@@ -380,7 +382,7 @@ DbTable* db_get_table_aux(Process *p,
     ASSERT(erts_get_scheduler_data());
 
     if (is_small(id)) {
-	Uint slot = unsigned_val(id) & meta_main_tab_slot_mask;
+	Uint slot = ID_TO_SLOT(unsigned_val(id));
 	if (!meta_already_locked) {
 	    mtl = get_meta_main_tab_lock(slot);
 	    erts_smp_rwmtx_rlock(mtl);
@@ -393,7 +395,7 @@ DbTable* db_get_table_aux(Process *p,
 	}
 #endif
 	if (slot < db_max_tabs && IS_SLOT_ALIVE(slot))
-	    tb = meta_main_tab[slot].u.tb;
+	    tb = meta_main_tab[slot].e.u.tb;
     }
     else if (is_atom(id)) {
 	struct meta_name_tab_entry* bucket = meta_name_tab_bucket(id,&mtl);
@@ -1207,7 +1209,7 @@ BIF_RETTYPE ets_rename_2(BIF_ALIST_2)
     (void) meta_name_tab_bucket(BIF_ARG_2, &lck1);
 
     if (is_small(BIF_ARG_1)) {
-	Uint slot = unsigned_val(BIF_ARG_1) & meta_main_tab_slot_mask;
+	Uint slot = ID_TO_SLOT(unsigned_val(BIF_ARG_1));
 	lck2 = get_meta_main_tab_lock(slot);
     }
     else if (is_atom(BIF_ARG_1)) {
@@ -1473,9 +1475,9 @@ BIF_RETTYPE ets_new_2(BIF_ALIST_2)
 	ret = BIF_ARG_1;
     }
     else {
-	ret = make_small(slot | meta_main_tab_seq_cnt);
+	ret = make_small(slot + meta_main_tab_seq_cnt);
 	meta_main_tab_seq_cnt += meta_main_tab_seq_incr;
-	ASSERT((unsigned_val(ret) & meta_main_tab_slot_mask) == slot);
+	ASSERT(ID_TO_SLOT(unsigned_val(ret)) == slot);
     }
     erts_smp_spin_unlock(&meta_main_tab_main_lock);
 
@@ -1484,7 +1486,7 @@ BIF_RETTYPE ets_new_2(BIF_ALIST_2)
 
     mmtl = get_meta_main_tab_lock(slot);
     erts_smp_rwmtx_rwlock(mmtl);
-    meta_main_tab[slot].u.tb = tb;
+    meta_main_tab[slot].e.u.tb = tb;
     ASSERT(IS_SLOT_ALIVE(slot));
     erts_smp_rwmtx_rwunlock(mmtl);
 
@@ -2078,7 +2080,7 @@ BIF_RETTYPE ets_all_0(BIF_ALIST_0)
 	erts_smp_rwmtx_rlock(mmtl);
 	if (IS_SLOT_ALIVE(i)) {
 	    j++;
-	    tb = meta_main_tab[i].u.tb;
+	    tb = meta_main_tab[i].e.u.tb;
 	    previous = CONS(hp, tb->common.id, previous);
 	    hp += 2;
 	}
@@ -2806,27 +2808,6 @@ void init_db(void)
     unsigned bits;
     size_t size;
 
-#ifdef ERTS_SMP
-    erts_smp_rwmtx_opt_t rwmtx_opt = ERTS_SMP_RWMTX_OPT_DEFAULT_INITER;
-    rwmtx_opt.type = ERTS_SMP_RWMTX_TYPE_FREQUENT_READ;
-    rwmtx_opt.lived = ERTS_SMP_RWMTX_LONG_LIVED;
-
-    meta_main_tab_locks =
-	erts_alloc_permanent_cache_aligned(ERTS_ALC_T_DB_TABLES,
-					   sizeof(erts_meta_main_tab_lock_t)
-					   * ERTS_META_MAIN_TAB_LOCK_TAB_SIZE);
-
-    for (i = 0; i < ERTS_META_MAIN_TAB_LOCK_TAB_SIZE; i++) {
-	erts_smp_rwmtx_init_opt_x(&meta_main_tab_locks[i].rwmtx, &rwmtx_opt,
-				  "meta_main_tab_slot", make_small(i));
-    }
-    erts_smp_spinlock_init(&meta_main_tab_main_lock, "meta_main_tab_main");
-    for (i=0; i<META_NAME_TAB_LOCK_CNT; i++) {
-	erts_smp_rwmtx_init_opt_x(&meta_name_tab_rwlocks[i].lck, &rwmtx_opt,
-				  "meta_name_tab", make_small(i));
-    }
-#endif
-
     erts_smp_atomic_init_nob(&erts_ets_misc_mem_size, 0);
     db_initialize_util();
 
@@ -2840,8 +2821,7 @@ void init_db(void)
 	erl_exit(1,"Max limit for ets tabled too high %u (max %u).",
 		 db_max_tabs, ((Uint)1)<<SMALL_BITS);
     }
-    meta_main_tab_slot_mask = (((Uint)1)<<bits) - 1;
-    meta_main_tab_seq_incr = (((Uint)1)<<bits);
+    meta_main_tab_seq_incr = db_max_tabs;
 
     size = sizeof(*meta_main_tab)*db_max_tabs;
     meta_main_tab = erts_db_alloc_nt(ERTS_ALC_T_DB_TABLES, size);
@@ -2854,15 +2834,30 @@ void init_db(void)
     SET_NEXT_FREE_SLOT(db_max_tabs-1, (Uint)-1);
     meta_main_tab_first_free = 0;
 
-    meta_name_tab_mask = (((Uint) 1)<<(bits-1)) - 1; /* At least half the size of main tab */
-    size = sizeof(struct meta_name_tab_entry)*(meta_name_tab_mask+1);
+    size = sizeof(*meta_name_tab)*db_max_tabs;
     meta_name_tab = erts_db_alloc_nt(ERTS_ALC_T_DB_TABLES, size);
     ERTS_ETS_MISC_MEM_ADD(size);
 
-    for (i=0; i<=meta_name_tab_mask; i++) {
-	meta_name_tab[i].pu.tb = NULL;
-	meta_name_tab[i].u.name_atom = NIL;
+    for (i=0; i<db_max_tabs; i++) {
+	meta_name_tab[i].head.e.pu.tb = NULL;
+	meta_name_tab[i].head.e.u.name_atom = NIL;
     }
+
+#ifdef ERTS_SMP
+    {
+	erts_smp_rwmtx_opt_t rwmtx_opt = ERTS_SMP_RWMTX_OPT_DEFAULT_INITER;
+	rwmtx_opt.type = ERTS_SMP_RWMTX_TYPE_FREQUENT_READ;
+	rwmtx_opt.lived = ERTS_SMP_RWMTX_LONG_LIVED;
+
+	for (i = 0; i < db_max_tabs; i++) {
+	    erts_smp_rwmtx_init_opt_x(&meta_main_tab[i].e.rwmtx, &rwmtx_opt,
+				      "meta_main_tab_slot", make_small(i));
+	    erts_smp_rwmtx_init_opt_x(&meta_name_tab[i].head.lck, &rwmtx_opt,
+				      "meta_name_tab", make_small(i));
+	}
+	erts_smp_spinlock_init(&meta_main_tab_main_lock, "meta_main_tab_main");
+    }
+#endif
 
     db_initialize_hash();
     db_initialize_tree();
@@ -3263,7 +3258,7 @@ erts_db_process_exiting(Process *c_p, ErtsProcLocks c_p_locks)
 		erts_smp_rwmtx_t *mmtl = get_meta_main_tab_lock(ix);
 		erts_smp_rwmtx_rlock(mmtl);
 		if (IS_SLOT_ALIVE(ix)) {
-		    tb = meta_main_tab[ix].u.tb;
+		    tb = meta_main_tab[ix].e.u.tb;
 		    ASSERT(tb);
 		}
 		erts_smp_rwmtx_runlock(mmtl);
@@ -3766,9 +3761,9 @@ void db_info(int to, void *to_arg, int show)    /* Called by break handler */
     int i;
     for (i=0; i < db_max_tabs; i++) 
 	if (IS_SLOT_ALIVE(i)) {
-	    erts_print(to, to_arg, "=ets:%T\n", meta_main_tab[i].u.tb->common.owner);
+	    erts_print(to, to_arg, "=ets:%T\n", meta_main_tab[i].e.u.tb->common.owner);
 	    erts_print(to, to_arg, "Slot: %d\n", i);
-	    print_table(to, to_arg, show, meta_main_tab[i].u.tb);
+	    print_table(to, to_arg, show, meta_main_tab[i].e.u.tb);
 	}
 #ifdef DEBUG
     erts_print(to, to_arg, "=internal_ets: Process to table index\n");
@@ -3795,7 +3790,7 @@ erts_db_foreach_table(void (*func)(DbTable *, void *), void *arg)
     for(i = 0; (i < db_max_tabs && j < meta_main_tab_cnt); i++) {
 	if (IS_SLOT_ALIVE(i)) {
 	    j++;
-	    (*func)(meta_main_tab[i].u.tb, arg);
+	    (*func)(meta_main_tab[i].e.u.tb, arg);
 	}
     }
     ASSERT(j == meta_main_tab_cnt);
@@ -3823,7 +3818,7 @@ erts_ets_colliding_names(Process* p, Eterm name, Uint cnt)
 {
     Eterm list = NIL;
     Eterm* hp = HAlloc(p,cnt*2);
-    Uint index = atom_val(name) & meta_name_tab_mask;
+    Uint index = atom_val(name) % db_max_tabs;
 
     while (cnt) {
         if (index != atom_val(name)) {
@@ -3836,7 +3831,7 @@ erts_ets_colliding_names(Process* p, Eterm name, Uint cnt)
             hp += 2;
             --cnt;
         }
-        index += meta_name_tab_mask + 1;
+        index += db_max_tabs;
     }
     return list;
 }
@@ -3853,7 +3848,7 @@ void db_check_tables(void)
 
     for (i = 0; i < db_max_tabs; i++) {
 	if (IS_SLOT_ALIVE(i)) {
-	    DbTable* tb = meta_main_tab[i].t; 
+	    DbTable* tb = meta_main_tab[i].e.u.tb;
 	    tb->common.meth->db_check_table(tb);
 	}
     }
