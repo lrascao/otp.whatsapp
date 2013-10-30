@@ -153,6 +153,7 @@ int erts_is_builtin(Eterm, Eterm, int);
 Uint32 make_broken_hash(Eterm);
 Uint32 block_hash(byte *, unsigned, Uint32);
 Uint32 make_hash2(Eterm);
+Uint32 make_hash2_init(Eterm, Uint32 initval);
 Uint32 make_hash(Eterm);
 
 
