@@ -58,7 +58,8 @@
 	 init_async_dirty_tm_sender/3
         ]).
 -define(NUM_ASYNC_DIRTY_TM, 32).
--define(NUM_ASYNC_DIRTY_TM_SENDER, 4).
+-define(NUM_ASYNC_DIRTY_TM_MODULUS, 17).
+-define(NUM_ASYNC_DIRTY_TM_SENDER, 3).
 -define(ASYNC_DIRTY_TM_SENDER_TIMEOUT, 10000).
 
 
@@ -224,10 +225,12 @@ prepare_checkpoint(Cp) ->
     req({prepare_checkpoint,Cp}).
 
 block_tab(Tab) ->
+    req(tab_to_async_dirty_tm_name_old(Tab), {block_tab, Tab}), 
     req(tab_to_async_dirty_tm_name(Tab), {block_tab, Tab}), 
     req({block_tab, Tab}).
 
 unblock_tab(Tab) ->
+    req(tab_to_async_dirty_tm_name_old(Tab), {unblock_tab, Tab}), 
     req(tab_to_async_dirty_tm_name(Tab), {unblock_tab, Tab}), 
     req({unblock_tab, Tab}).
 
@@ -532,28 +535,37 @@ do_async_dirty(Tid, Commit, _Tab) ->
 tab_to_async_dirty_tm_name (Tab) when is_atom(Tab) ->
     num_to_async_dirty_tm_name(tab_to_async_dirty_tm_num(Tab)).
 
+tab_to_async_dirty_tm_name_old (Tab) when is_atom(Tab) ->
+    num_to_async_dirty_tm_name(tab_to_async_dirty_tm_num_old(Tab)).
+
 num_to_async_dirty_tm_name (N) when is_integer(N) ->
     list_to_atom("mnesia_tm_" ++ integer_to_list(N)).
 
-tab_to_async_dirty_tm_num (Tab) when is_atom(Tab) ->
-    tab_to_async_dirty_tm_num(atom_to_list(Tab));
-tab_to_async_dirty_tm_num ([]) ->
+tab_to_async_dirty_tm_num (Tab) ->
+    (tab_to_frag_num(Tab) rem ?NUM_ASYNC_DIRTY_TM_MODULUS) + 1.
+
+tab_to_async_dirty_tm_num_old (Tab) ->
+    ((tab_to_frag_num(Tab)-1) rem ?NUM_ASYNC_DIRTY_TM) + 1.
+
+tab_to_frag_num (Tab) when is_atom(Tab) ->
+    tab_to_frag_num(atom_to_list(Tab));
+tab_to_frag_num ([]) ->
     1;
-tab_to_async_dirty_tm_num ([$_ | S]) ->
+tab_to_frag_num ([$_ | S]) ->
     case S of
 	[$f, $r, $a, $g | NS] ->
 	    try list_to_integer(NS) of
 		N ->
-		    ((N-1) rem ?NUM_ASYNC_DIRTY_TM) + 1
+		    N
 	    catch
 		_:_ ->
-		    tab_to_async_dirty_tm_num(S)
+		    tab_to_frag_num(S)
 	    end;
 	_ ->
-	    tab_to_async_dirty_tm_num(S)
+	    tab_to_frag_num(S)
     end;
-tab_to_async_dirty_tm_num ([_ | S]) ->
-    tab_to_async_dirty_tm_num(S).
+tab_to_frag_num ([_ | S]) ->
+    tab_to_frag_num(S).
 
 %% Process items in fifo order
 process_dirty_queue(Tab, [Item | Queue]) ->
