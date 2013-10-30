@@ -1067,6 +1067,12 @@ block_hash(byte *k, unsigned length, Uint32 initval)
 Uint32
 make_hash2(Eterm term)
 {
+    return make_hash2_init(term, 0);
+}
+
+Uint32
+make_hash2_init(Eterm term, Uint32 initval)
+{
     Uint32 hash;
     DeclareTmpHeapNoproc(tmp_big,2);
 
@@ -1125,7 +1131,7 @@ make_hash2(Eterm term)
 		  term = small_to_big(x, tmp_big);
 		  break;
 	      }
-	      hash = 0;
+	      hash = initval;
 	      SINT32_HASH(x, HCONST);
 	      return hash;
 	  }
@@ -1136,7 +1142,7 @@ make_hash2(Eterm term)
     DECLARE_ESTACK(s);
 
     UseTmpHeapNoproc(2);
-    hash = 0;
+    hash = initval;
     for (;;) {
 	switch (primary_tag(term)) {
 	case TAG_PRIMARY_LIST:
