@@ -80,11 +80,11 @@ all(suite) ->
        scope_per_suite_state_cth, scope_per_group_state_cth, 
        scope_suite_state_cth,
        fail_pre_suite_cth, double_fail_pre_suite_cth,
-       fail_post_suite_cth, skip_pre_suite_cth,
+       fail_post_suite_cth, skip_pre_suite_cth, skip_pre_end_cth,
        skip_post_suite_cth, recover_post_suite_cth, update_config_cth,
        state_update_cth, options_cth, same_id_cth, 
        fail_n_skip_with_minimal_cth, prio_cth, no_config,
-       data_dir
+       data_dir, cth_log
       ]
     ).
 
@@ -181,6 +181,10 @@ skip_pre_suite_cth(Config) when is_list(Config) ->
     do_test(skip_pre_suite_cth, "ct_cth_empty_SUITE.erl",
 	    [skip_pre_suite_cth],Config).
 
+skip_pre_end_cth(Config) when is_list(Config) ->
+    do_test(skip_pre_end_cth, "ct_scope_per_group_cth_SUITE.erl",
+	    [skip_pre_end_cth],Config).
+
 skip_post_suite_cth(Config) when is_list(Config) ->
     do_test(skip_post_suite_cth, "ct_cth_empty_SUITE.erl",
 	    [skip_post_suite_cth],Config).
@@ -222,7 +226,32 @@ data_dir(Config) when is_list(Config) ->
     do_test(data_dir, "ct_data_dir_SUITE.erl",
 	    [verify_data_dir_cth],Config).
 
-    
+cth_log(Config) when is_list(Config) ->    
+    %% test that cth_log_redirect writes properly to
+    %% unexpected I/O log
+    StartOpts = do_test(cth_log, "cth_log_SUITE.erl", [], Config),
+    Logdir = proplists:get_value(logdir, StartOpts),
+    UnexpIoLogs =
+	filelib:wildcard(
+	  filename:join(Logdir,
+			"ct_run*/cth.tests*/run*/unexpected_io.log.html")),
+    lists:foreach(
+      fun(UnexpIoLog) ->
+	      {ok,Bin} = file:read_file(UnexpIoLog),
+	      Ts = string:tokens(binary_to_list(Bin),[$\n]),
+	      Matches = lists:foldl(fun([$=,$E,$R,$R,$O,$R|_],  N) ->
+					    N+1;
+				       ([$L,$o,$g,$g,$e,$r|_],  N) ->
+					    N+1;
+				       (_, N) -> N
+				    end, 0, Ts),
+	      ct:pal("~p matches in ~tp", [Matches,UnexpIoLog]),
+	      if Matches > 10 -> ok;
+		 true -> exit({no_unexpected_io_found,UnexpIoLog})
+	      end
+      end, UnexpIoLogs),
+    ok.
+
 
 %%%-----------------------------------------------------------------
 %%% HELP FUNCTIONS
@@ -251,7 +280,8 @@ do_test(Tag, SuiteWildCard, CTHs, Config, Res, EC) ->
 			       Opts),
 
     TestEvents = events_to_check(Tag, EC),
-    ok = ct_test_support:verify_events(TestEvents, Events, Config).
+    ok = ct_test_support:verify_events(TestEvents, Events, Config),
+    Opts.
 
 setup(Test, Config) ->
     Opts0 = ct_test_support:get_opts(Config),
@@ -723,14 +753,50 @@ test_events(skip_pre_suite_cth) ->
      {?eh,cth,{'_',on_tc_skip,
 	       [init_per_suite,{tc_user_skip,{skipped,"Test skip"}},[]]}},
 
-     {?eh,tc_auto_skip,{ct_cth_empty_SUITE,test_case,"Test skip"}},
-     {?eh,cth,{'_',on_tc_skip,[test_case,{tc_auto_skip,"Test skip"},[]]}},
+     {?eh,tc_user_skip,{ct_cth_empty_SUITE,test_case,"Test skip"}},
+     {?eh,cth,{'_',on_tc_skip,[test_case,{tc_user_skip,"Test skip"},[]]}},
      
-     {?eh,tc_auto_skip, {ct_cth_empty_SUITE, end_per_suite,"Test skip"}},
-     {?eh,cth,{'_',on_tc_skip,[end_per_suite,{tc_auto_skip,"Test skip"},[]]}},
+     {?eh,tc_user_skip, {ct_cth_empty_SUITE, end_per_suite,"Test skip"}},
 
      {?eh,test_done,{'DEF','STOP_TIME'}},
      {?eh,cth, {'_',terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(skip_pre_end_cth) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,tc_start,{ct_scope_per_group_cth_SUITE,init_per_suite}},
+     {?eh,tc_done,{ct_scope_per_group_cth_SUITE,init_per_suite,ok}},
+     
+     [{?eh,tc_start,{ct_scope_per_group_cth_SUITE,{init_per_group,group1,[]}}},
+      {?eh,cth,{'_',id,[[]]}},
+      {?eh,cth,{'_',init,['_',[]]}},
+      {?eh,cth,{'_',post_init_per_group,[group1,'$proplist','$proplist',[]]}},
+      {?eh,tc_done,{ct_scope_per_group_cth_SUITE,{init_per_group,group1,[]},ok}},
+      
+      {?eh,tc_start,{ct_scope_per_group_cth_SUITE,test_case}},
+      {?eh,cth,{'_',pre_init_per_testcase,[test_case,'$proplist',[]]}},
+      {?eh,cth,{'_',post_end_per_testcase,[test_case,'$proplist',ok,[]]}},
+      {?eh,tc_done,{ct_scope_per_group_cth_SUITE,test_case,ok}},
+      
+      {?eh,tc_start,{ct_scope_per_group_cth_SUITE,{end_per_group,group1,[]}}},
+      {?eh,cth,{'_',pre_end_per_group,[group1,'$proplist',[]]}},
+      {?eh,cth,{'_',post_end_per_group,[group1,'$proplist','_',[]]}},
+      {?eh,tc_done,{ct_scope_per_group_cth_SUITE,{end_per_group,group1,[]},
+		    {skipped,"Test skip"}}}],
+      {?eh,cth,{'_',on_tc_skip,[end_per_group,
+				{tc_user_skip,{skipped,"Test skip"}},
+				[]]}},
+     {?eh,tc_start,{ct_scope_per_group_cth_SUITE,end_per_suite}},
+     {?eh,tc_done,{ct_scope_per_group_cth_SUITE,end_per_suite,
+		   {skipped,"Test skip"}}},
+     {?eh,cth,{'_',on_tc_skip,[end_per_suite,
+			       {tc_user_skip,{skipped,"Test skip"}},
+			       []]}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{'_',terminate,[[]]}},
      {?eh,stop_logging,[]}
     ];
 
@@ -747,11 +813,10 @@ test_events(skip_post_suite_cth) ->
      {?eh,cth,{'_',on_tc_skip,
 	       [init_per_suite,{tc_user_skip,{skipped,"Test skip"}},[]]}},
 
-     {?eh,tc_auto_skip,{ct_cth_empty_SUITE,test_case,"Test skip"}},
-     {?eh,cth,{'_',on_tc_skip,[test_case,{tc_auto_skip,"Test skip"},[]]}},
+     {?eh,tc_user_skip,{ct_cth_empty_SUITE,test_case,"Test skip"}},
+     {?eh,cth,{'_',on_tc_skip,[test_case,{tc_user_skip,"Test skip"},[]]}},
      
-     {?eh,tc_auto_skip, {ct_cth_empty_SUITE, end_per_suite,"Test skip"}},
-     {?eh,cth,{'_',on_tc_skip,[end_per_suite,{tc_auto_skip,"Test skip"},[]]}},
+     {?eh,tc_user_skip, {ct_cth_empty_SUITE, end_per_suite,"Test skip"}},
      
      {?eh,test_done,{'DEF','STOP_TIME'}},
      {?eh,cth,{'_',terminate,[[]]}},
@@ -1183,6 +1248,27 @@ test_events(data_dir) ->
      {?eh,cth,{empty_cth,post_end_per_suite,
 	       [ct_data_dir_SUITE,'$proplist',ok,[{data_dir_name,"ct_data_dir_SUITE_data"}]]}},
      {?eh,tc_done,{ct_framework,end_per_suite,ok}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(cth_log) ->
+    [{?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,tc_start,{cth_log_SUITE,init_per_suite}},
+
+     {parallel,
+      [{?eh,tc_start,{ct_framework,{init_per_group,g1,
+				    [{suite,cth_log_SUITE},parallel]}}},
+       {?eh,tc_done,{ct_framework,{init_per_group,g1,
+				   [{suite,cth_log_SUITE},parallel]},ok}},
+       {?eh,test_stats,{30,0,{0,0}}},
+       {?eh,tc_start,{ct_framework,{end_per_group,g1,
+				    [{suite,cth_log_SUITE},parallel]}}},
+       {?eh,tc_done,{ct_framework,{end_per_group,g1,
+				   [{suite,cth_log_SUITE},parallel]},ok}}]},
+       
+     {?eh,tc_done,{cth_log_SUITE,end_per_suite,ok}},
      {?eh,test_done,{'DEF','STOP_TIME'}},
      {?eh,stop_logging,[]}
     ];

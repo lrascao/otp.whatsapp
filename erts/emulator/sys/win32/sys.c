@@ -32,7 +32,7 @@
 #include "erl_threads.h"
 #include "../../drivers/win32/win_con.h"
 #include "erl_cpu_topology.h"
-
+#include <malloc.h>
 
 void erts_sys_init_float(void);
 
@@ -399,11 +399,12 @@ int* pBuild;			/* Pointer to build number. */
  * Definitions for driver flags.
  */
 
-#define DF_OVR_READY	1	/* Overlapped result is ready. */
-#define DF_EXIT_THREAD	2	/* The thread should exit. */
-#define DF_XLAT_CR	4	/* The thread should translate CRs. */
-#define DF_DROP_IF_INVH 8       /* Drop packages instead of crash if
+#define DF_OVR_READY	  1	/* Overlapped result is ready. */
+#define DF_EXIT_THREAD	  2	/* The thread should exit. */
+#define DF_XLAT_CR	  4	/* The thread should translate CRs. */
+#define DF_DROP_IF_INVH   8     /* Drop packages instead of crash if
 				   invalid handle (stderr) */
+#define DF_THREAD_FLUSHED 16	/* The thread should exit. */
 
 #define OV_BUFFER_PTR(dp) ((LPVOID) ((dp)->ov.Internal))
 #define OV_NUM_TO_READ(dp) ((dp)->ov.InternalHigh)
@@ -2141,8 +2142,9 @@ threaded_writer(LPVOID param)
   
     for (;;) {
 	handle = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
-	if (aio->flags & DF_EXIT_THREAD)
+	if (aio->flags & DF_EXIT_THREAD) {
 	    break;
+	}
 
 	buf = OV_BUFFER_PTR(aio);
 	numToWrite = OV_NUM_TO_READ(aio);
@@ -2150,6 +2152,7 @@ threaded_writer(LPVOID param)
 
 	if (handle == (WAIT_OBJECT_0 + 1) && numToWrite == 0) {
 	  SetEvent(aio->flushReplyEvent);
+	  aio->flags |= DF_THREAD_FLUSHED;
 	  continue;
 	}
 
@@ -2197,6 +2200,7 @@ threaded_writer(LPVOID param)
 	if (aio->flags & DF_EXIT_THREAD)
 	    break;
     }
+    aio->flags |= DF_THREAD_FLUSHED;
     CloseHandle(aio->fd);
     aio->fd = INVALID_HANDLE_VALUE;
     unrefer_driver_data(aio->dp);
@@ -2340,9 +2344,11 @@ static void fd_stop(ErlDrvData data)
       (void) driver_select(dp->port_num,
 			   (ErlDrvEvent)dp->out.ov.hEvent,
 			   ERL_DRV_WRITE, 0);
-      ASSERT(dp->out.flushEvent);
-      SetEvent(dp->out.flushEvent);
-      WaitForSingleObject(dp->out.flushReplyEvent, INFINITE);
+      do {
+	ASSERT(dp->out.flushEvent);
+	SetEvent(dp->out.flushEvent);
+      } while (WaitForSingleObject(dp->out.flushReplyEvent, 10) == WAIT_TIMEOUT
+	       || !(dp->out.flags & DF_THREAD_FLUSHED));
   }    
 
 }
@@ -2433,12 +2439,12 @@ threaded_exiter(LPVOID param)
      */
     i = 0;
     if (dp->out.thread != (HANDLE) -1) {
-	dp->out.flags = DF_EXIT_THREAD;
+	dp->out.flags |= DF_EXIT_THREAD;
 	SetEvent(dp->out.ioAllowed);
 	handles[i++] = dp->out.thread;
     }
     if (dp->in.thread != (HANDLE) -1) {
-	dp->in.flags = DF_EXIT_THREAD;
+	dp->in.flags |= DF_EXIT_THREAD;
 	SetEvent(dp->in.ioAllowed);
 	handles[i++] = dp->in.thread;
     }
@@ -2906,6 +2912,30 @@ void erts_sys_free(ErtsAlcType_t t, void *x, void *p)
     free(p);
 }
 
+void *erts_sys_aligned_alloc(UWord alignment, UWord size)
+{
+    void *ptr;
+    ASSERT(alignment && (alignment & ~alignment) == 0); /* power of 2 */
+    ptr = _aligned_malloc((size_t) size, (size_t) alignment);
+    ASSERT(!ptr || (((UWord) ptr) & (alignment - 1)) == 0);
+    return ptr;
+}
+
+void erts_sys_aligned_free(UWord alignment, void *ptr)
+{
+    ASSERT(alignment && (alignment & ~alignment) == 0); /* power of 2 */
+    _aligned_free(ptr);
+}
+
+void *erts_sys_aligned_realloc(UWord alignment, void *ptr, UWord size, UWord old_size)
+{
+    void *new_ptr;
+    ASSERT(alignment && (alignment & ~alignment) == 0); /* power of 2 */
+    new_ptr = _aligned_realloc(ptr, (size_t) size, (size_t) alignment);
+    ASSERT(!new_ptr || (((UWord) new_ptr) & (alignment - 1)) == 0);
+    return new_ptr;
+}
+
 static Preload* preloaded = NULL;
 static unsigned* res_name = NULL;
 static int num_preloaded = 0;
@@ -3194,7 +3224,7 @@ erl_bin_write(buf, sz, max)
 }
 
 void
-erl_assert_error(char* expr, char* file, int line)
+erl_assert_error(const char* expr, const char* func, const char* file, int line)
 {   
     char message[1024];
 

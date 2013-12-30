@@ -1,7 +1,8 @@
+%% -*- coding: utf-8 -*-
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -25,10 +26,10 @@
 %% {RevList,Translation}
 %% Where 'RevList' is a reversed list of the denormalized repressentation of
 %% the character 'Translation'. An example would be the swedish character 
-%% 'ö', which would be represented in the file as:
+%% 'Ã¶', which would be represented in the file as:
 %% {[776,111],246}, as the denormalized representation of codepoint 246
 %% is [111,776] (i.e an 'o' followed by the "double dot accent character 776),
-%% while 'ä' instead is represented as {[776,97],228}, as the denormalized 
+%% while 'Ã¤' instead is represented as {[776,97],228}, as the denormalized 
 %% form would be [97,776] (same accent but an 'a' instead).
 %% The datafile is generated from the table on Apple's developer connection
 %% http://developer.apple.com/library/mac/#technotes/tn/tn1150table.html

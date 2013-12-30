@@ -924,6 +924,7 @@ extern int count_instructions;
 #  define NOINLINE
 #endif
 
+
 /*
  * The following functions are called directly by process_main().
  * Don't inline them.
@@ -1153,6 +1154,9 @@ void process_main(void)
 
     Eterm pt_arity;		/* Used by do_put_tuple */
 
+    Uint64 start_time = 0;          /* Monitor long schedule */
+    BeamInstr* start_time_i = NULL;
+
     ERL_BITS_DECLARE_STATEP; /* Has to be last declaration */
 
 
@@ -1175,6 +1179,16 @@ void process_main(void)
  do_schedule:
     reds_used = REDS_IN(c_p) - FCALLS;
  do_schedule1:
+
+    if (start_time != 0) {
+        Sint64 diff = erts_timestamp_millis() - start_time;
+	if (diff > 0 && (Uint) diff >  erts_system_monitor_long_schedule) {
+	    BeamInstr *inptr = find_function_from_pc(start_time_i);
+	    BeamInstr *outptr = find_function_from_pc(c_p->i);
+	    monitor_long_schedule_proc(c_p,inptr,outptr,(Uint) diff);
+	}
+    }
+
     PROCESS_MAIN_CHK_LOCKS(c_p);
     ERTS_SMP_UNREQ_PROC_MAIN_LOCK(c_p);
 #if HALFWORD_HEAP
@@ -1183,11 +1197,18 @@ void process_main(void)
     ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
     c_p = schedule(c_p, reds_used);
     ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
+    start_time = 0;
 #ifdef DEBUG
     pid = c_p->common.id; /* Save for debugging purpouses */
 #endif
     ERTS_SMP_REQ_PROC_MAIN_LOCK(c_p);
     PROCESS_MAIN_CHK_LOCKS(c_p);
+
+    if (erts_system_monitor_long_schedule != 0) {
+	start_time = erts_timestamp_millis();
+	start_time_i = c_p->i;
+    }
+
     reg = ERTS_PROC_GET_SCHDATA(c_p)->x_reg_array;
     freg = ERTS_PROC_GET_SCHDATA(c_p)->f_reg_array;
 #if !HEAP_ON_C_STACK
@@ -5634,7 +5655,6 @@ build_stacktrace(Process* c_p, Eterm exc) {
     return res;
 }
 
-
 static BeamInstr*
 call_error_handler(Process* p, BeamInstr* fi, Eterm* reg, Eterm func)
 {
@@ -5682,7 +5702,6 @@ call_error_handler(Process* p, BeamInstr* fi, Eterm* reg, Eterm func)
     return ep->addressv[erts_active_code_ix()];
 }
 
-
 static Export*
 apply_setup_error_handler(Process* p, Eterm module, Eterm function, Uint arity, Eterm* reg)
 {
@@ -6152,6 +6171,7 @@ apply_fun(Process* p, Eterm fun, Eterm args, Eterm* reg)
 }
 
 
+
 static Eterm
 new_fun(Process* p, Eterm* reg, ErlFunEntry* fe, int num_free)
 {
@@ -6187,7 +6207,6 @@ new_fun(Process* p, Eterm* reg, ErlFunEntry* fe, int num_free)
     return make_fun(funp);
 }
 
-
 
 int catchlevel(Process *p)
 {
@@ -6235,3 +6254,12 @@ erts_current_reductions(Process *current, Process *p)
     }
 }
 
+int
+erts_beam_jump_table(void)
+{
+#if defined(NO_JUMP_TABLE)
+    return 0;
+#else
+    return 1;
+#endif
+}

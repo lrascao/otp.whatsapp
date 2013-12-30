@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2000-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2000-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -1580,6 +1580,7 @@ clear_function_break(BeamInstr *pc, Uint break_flags)
     }
     if (common & ERTS_BPF_META_TRACE) {
 	MatchSetUnref(bp->meta_ms);
+	bp_meta_unref(bp->meta_pid);
     }
     if (common & ERTS_BPF_COUNT) {
 	ASSERT((bp->flags & ERTS_BPF_COUNT_ACTIVE) == 0);

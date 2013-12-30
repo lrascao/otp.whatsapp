@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="iso-8859-1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -30,7 +30,24 @@
   </header>
   <p>This document describes the changes made to the <em>erl_docgen</em> application.</p>
 
-  <section><title>Erl_Docgen 0.3.4</title>
+  <section><title>Erl_Docgen 0.3.4.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The encoding of the <c>notes.xml</c> file has been
+	    changed from latin1 to utf-8 to avoid future merge
+	    problems.</p>
+          <p>
+	    Own Id: OTP-11310</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erl_Docgen 0.3.4</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
       <list>
@@ -120,7 +137,7 @@
 	    have it installed.</p>
           <p>
 	    Also adds minor cosmetic changes to the CSS. (Thanks to
-	    Ricardo Catalinas Jiménez)</p>
+	    Ricardo Catalinas JimÃ©nez)</p>
           <p>
 	    Own Id: OTP-9918</p>
         </item>

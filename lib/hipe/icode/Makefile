@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2001-2012. All Rights Reserved.
+# Copyright Ericsson AB 2001-2013. All Rights Reserved.
 #
 # The contents of this file are subject to the Erlang Public License,
 # Version 1.1, (the "License"); you may not use this file except in
@@ -83,7 +83,7 @@ DOC_FILES= $(DOC_MODULES:%=$(DOCS)/%.html)
 
 include ../native.mk
 
-ERL_COMPILE_FLAGS += +warn_unused_import +warn_missing_spec # +warn_untyped_record
+ERL_COMPILE_FLAGS += +warn_unused_import +warn_exported_vars +warn_missing_spec # +warn_untyped_record
 
 # ----------------------------------------------------
 # Targets

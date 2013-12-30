@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1997-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -629,7 +629,7 @@ efile_writev(Efile_error* errInfo,   /* Where to return error codes */
 		    if (w < iov[cnt].iov_len) {
 			/* Adjust the buffer for next write */
 			iov[cnt].iov_len -= w;
-			iov[cnt].iov_base += w;
+			iov[cnt].iov_base = ((char *)iov[cnt].iov_base) + w;
 			w = 0;
 			break;
 		    } else {

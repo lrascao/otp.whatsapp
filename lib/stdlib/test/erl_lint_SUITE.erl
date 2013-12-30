@@ -50,7 +50,7 @@
 	  unsafe_vars_try/1,
 	  guard/1, otp_4886/1, otp_4988/1, otp_5091/1, otp_5276/1, otp_5338/1,
 	  otp_5362/1, otp_5371/1, otp_7227/1, otp_5494/1, otp_5644/1, otp_5878/1,
-	  otp_5917/1, otp_6585/1, otp_6885/1, otp_10436/1,
+	  otp_5917/1, otp_6585/1, otp_6885/1, otp_10436/1, otp_11254/1,
           export_all/1,
 	  bif_clash/1,
 	  behaviour_basic/1, behaviour_multiple/1,
@@ -82,7 +82,7 @@ all() ->
      unsafe_vars, unsafe_vars2, unsafe_vars_try, guard,
      otp_4886, otp_4988, otp_5091, otp_5276, otp_5338,
      otp_5362, otp_5371, otp_7227, otp_5494, otp_5644,
-     otp_5878, otp_5917, otp_6585, otp_6885, otp_10436, export_all,
+     otp_5878, otp_5917, otp_6585, otp_6885, otp_10436, otp_11254,export_all,
      bif_clash, behaviour_basic, behaviour_multiple,
      otp_7550, otp_8051, format_warn, {group, on_load},
      too_many_arguments, basic_errors, bin_syntax_errors].
@@ -151,7 +151,16 @@ unused_vars_warn_basic(Config) when is_list(Config) ->
              {22,erl_lint,{unused_var,'N'}},
              {23,erl_lint,{shadowed_var,'N','fun'}},
              {28,erl_lint,{unused_var,'B'}},
-             {29,erl_lint,{unused_var,'B'}}]}}],
+             {29,erl_lint,{unused_var,'B'}}]}},
+          {basic2,
+           <<"-record(r, {x,y}).
+              f({X,Y}) -> {Z=X,Z=Y};
+              f([H|T]) -> [Z=H|Z=T];
+              f(#r{x=X,y=Y}) -> #r{x=A=X,y=A=Y}.
+              g({M, F}) -> (Z=M):(Z=F)();
+              g({M, F, Arg}) -> (Z=M):F(Z=Arg).
+              h(X, Y) -> (Z=X) + (Z=Y).">>,
+           [warn_unused_vars], []}],
     ?line [] = run(Config, Ts),
     ok.
 
@@ -537,7 +546,29 @@ unused_vars_warn_rec(Config) when is_list(Config) ->
                   end.
            ">>,
            [warn_unused_vars],
-           {warnings,[{22,erl_lint,{unused_var,'Same'}}]}}],
+           {warnings,[{22,erl_lint,{unused_var,'Same'}}]}},
+          {rec2,
+           <<"-record(r, {a,b}).
+              f(X, Y) -> #r{a=[K || K <- Y], b=[K || K <- Y]}.
+              g(X, Y) -> #r{a=lists:map(fun (K) -> K end, Y),
+                            b=lists:map(fun (K) -> K end, Y)}.
+              h(X, Y) -> #r{a=case Y of _ when is_list(Y) -> Y end,
+                            b=case Y of _ when is_list(Y) -> Y end}.
+              i(X, Y) -> #r{a=if is_list(Y) -> Y end, b=if is_list(Y) -> Y end}.
+             ">>,
+           [warn_unused_vars],
+           {warnings,[{2,erl_lint,{unused_var,'X'}},
+                      {3,erl_lint,{unused_var,'X'}},
+                      {5,erl_lint,{unused_var,'X'}},
+                      {7,erl_lint,{unused_var,'X'}}]}},
+          {rec3,
+           <<"-record(r, {a}).
+              t() -> X = 1, #r{a=foo, a=bar, a=qux}.
+             ">>,
+           [warn_unused_vars],
+           {error,[{2,erl_lint,{redefine_field,r,a}},
+                   {2,erl_lint,{redefine_field,r,a}}],
+                  [{2,erl_lint,{unused_var,'X'}}]}}],
     ?line [] = run(Config, Ts),
     ok.
 
@@ -1075,7 +1106,24 @@ unsafe_vars_try(Config) when is_list(Config) ->
 		    {10,erl_lint,{unsafe_var,'Ra',{'try',3}}},
 		    {10,erl_lint,{unsafe_var,'Rc',{'try',3}}},
 		    {10,erl_lint,{unsafe_var,'Ro',{'try',3}}}],
-	    []}}],
+	    []}},
+          {unsafe_try5,
+           <<"bang() ->
+                case 1 of
+                  nil ->
+                    Acc = 2;
+                  _ ->
+                    try
+                      Acc = 3,
+                      Acc
+                    catch _:_ ->
+                      ok
+                    end
+                end,
+                Acc.
+           ">>,
+           [],
+           {errors,[{13,erl_lint,{unsafe_var,'Acc',{'try',6}}}],[]}}],
         ?line [] = run(Config, Ts),
     ok.
 
@@ -2416,6 +2464,20 @@ otp_10436(Config) when is_list(Config) ->
     {warnings,[{3,erl_lint,{underspecified_opaque,{t1,0}}},
                {4,erl_lint,{underspecified_opaque,{t2,0}}}]} =
         run_test2(Config, Ts2, []),
+    ok.
+
+otp_11254(doc) ->
+    "OTP-11254. Warnings for opaque types.";
+otp_11254(suite) -> [];
+otp_11254(Config) when is_list(Config) ->
+    Ts = <<"-module(p2).
+            -export([manifest/2]).
+            manifest(Module, Name) ->
+              fun Module:Nine/1.
+         ">>,
+    {error,[{4,erl_lint,{unbound_var,'Nine'}}],
+     [{3,erl_lint,{unused_var,'Name'}}]} =
+        run_test2(Config, Ts, []),
     ok.
 
 export_all(doc) ->

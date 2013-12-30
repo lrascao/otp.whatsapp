@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2007-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -772,8 +772,10 @@ all_listen_options() ->
      {mode,list,binary,true,true}, 
      {deliver,term,port,true,true}, 
      {exit_on_close, true, false, true, true},
-     %{high_watermark,4096,8192,true,true}, 
-     %{low_watermark,2048,4096,true,true}, 
+     {high_watermark,4096,8192,true,true}, 
+     {low_watermark,2048,4096,true,true}, 
+     {high_msgq_watermark,4096,8192,true,true}, 
+     {low_msgq_watermark,2048,4096,true,true}, 
      {send_timeout,infinity,1000,true,true},
      {send_timeout_close,false,true,true,true},
      {delay_send,false,true,true,true}, 
@@ -797,6 +799,8 @@ all_connect_options() ->
      {exit_on_close, true, false, true, true},
      {high_watermark,4096,8192,false,true}, 
      {low_watermark,2048,4096,false,true}, 
+     {high_msgq_watermark,4096,8192,true,true}, 
+     {low_msgq_watermark,2048,4096,true,true}, 
      {send_timeout,infinity,1000,true,true},
      {send_timeout_close,false,true,true,true},
      {delay_send,false,true,true,true}, 

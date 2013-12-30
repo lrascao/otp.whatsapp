@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -38,7 +38,7 @@
 	 is_valid_key_usage/2,
 	 select_extension/2,
 	 extensions_list/1,
-	 signature_type/1
+	 public_key_type/1
 	]).
  
 %%====================================================================
@@ -167,20 +167,16 @@ extensions_list(Extensions) ->
     Extensions.
 
 %%--------------------------------------------------------------------
--spec signature_type(term()) -> rsa | dsa .
+-spec public_key_type(term()) -> rsa | dsa | ec.
 %%
-%% Description: 
+%% Description:
 %%--------------------------------------------------------------------
-signature_type(RSA) when RSA == ?sha1WithRSAEncryption;
-			 RSA == ?md5WithRSAEncryption;
-			 RSA == ?sha224WithRSAEncryption;
-			 RSA == ?sha256WithRSAEncryption;
-			 RSA == ?sha384WithRSAEncryption;
-			 RSA == ?sha512WithRSAEncryption
-			 ->
+public_key_type(?'rsaEncryption') ->
     rsa;
-signature_type(?'id-dsa-with-sha1') ->
-    dsa.
+public_key_type(?'id-dsa') ->
+    dsa;
+public_key_type(?'id-ecPublicKey') ->
+    ec.
 
 %%--------------------------------------------------------------------
 %%% Internal functions
@@ -244,7 +240,7 @@ find_issuer(OtpCert, CertDbHandle) ->
 			  Acc
 		  end,
 
-    try ssl_certificate_db:foldl(IsIssuerFun, issuer_not_found, CertDbHandle) of
+    try ssl_pkix_db:foldl(IsIssuerFun, issuer_not_found, CertDbHandle) of
 	issuer_not_found ->
 	    {error, issuer_not_found}
     catch 

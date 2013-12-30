@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -1328,10 +1328,10 @@ do_recv_response(SSH, Chn, Data, End, Timeout) ->
 get_handle(SSH) when is_pid(SSH) ->
     {ok,SSH};
 get_handle(SSH) ->
-    case ct_util:get_connections(SSH, ?MODULE) of
-	{ok,[{Pid,_}]} ->
+    case ct_util:get_connection(SSH, ?MODULE) of
+	{ok,{Pid,_}} ->
 	    {ok,Pid};
-	{ok,[]} ->
+	{error,no_registered_connection} ->
 	    connect(SSH);
 	Error ->
 	    Error

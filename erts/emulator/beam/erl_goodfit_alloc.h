@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2003-2010. All Rights Reserved.
+ * Copyright Ericsson AB 2003-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -82,7 +82,7 @@ struct GFAllctr_t_ {
 
 };
 
-unsigned long erts_gfalc_test(unsigned long, unsigned long, unsigned long);
+UWord erts_gfalc_test(UWord, UWord, UWord);
 
 #endif /* #if defined(GET_ERL_GF_ALLOC_IMPL)
 	      && !defined(ERL_GF_ALLOC_IMPL__) */

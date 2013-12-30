@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -2532,8 +2532,8 @@ otp_5939(Config) when is_list(Config) ->
     ?line [] = lists:filter(Pred, []),
     ?line {'EXIT', _} = (catch lists:partition(func, [])),
     ?line {[],[]} = lists:partition(Pred, []),
-    ?line {'EXIT', _} = (catch lists:zf(func, [])),
-    ?line [] = lists:zf(Fun1, []),
+    ?line {'EXIT', _} = (catch lists:filtermap(func, [])),
+    ?line [] = lists:filtermap(Fun1, []),
     ?line {'EXIT', _} = (catch lists:foreach(func, [])),
     ?line ok = lists:foreach(Fun1, []),
     ?line {'EXIT', _} = (catch lists:mapfoldl(func, [], [])),

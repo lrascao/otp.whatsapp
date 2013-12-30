@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -76,7 +76,10 @@ process_info(int to, void *to_arg)
     for (i = 0; i < max; i++) {
 	Process *p = erts_pix2proc(i);
 	if (p && p->i != ENULL) {
-	    if (!ERTS_PROC_IS_EXITING(p))
+	    /* Do not include processes with no heap,
+	     * they are most likely just created and has invalid data
+	     */
+	    if (!ERTS_PROC_IS_EXITING(p) && p->heap != NULL)
 		print_process_info(to, to_arg, p);
 	}
     }
@@ -332,6 +335,7 @@ print_process_info(int to, void *to_arg, Process *p)
     erts_print(to, to_arg, "Heap unused: %bpu\n", (p->hend - p->htop));
     erts_print(to, to_arg, "OldHeap unused: %bpu\n",
 	       (OLD_HEAP(p) == NULL) ? 0 : (OLD_HEND(p) - OLD_HTOP(p)) );
+    erts_print(to, to_arg, "Memory: %beu\n", erts_process_memory(p));
 
     if (garbing) {
 	print_garb_info(to, to_arg, p);
@@ -754,7 +758,7 @@ erl_crash_dump_v(char *file, int line, char* fmt, va_list args)
 	return; /* Can't create the crash dump, skip it */
     
     time(&now);
-    erts_fdprintf(fd, "=erl_crash_dump:0.1\n%s", ctime(&now));
+    erts_fdprintf(fd, "=erl_crash_dump:0.3\n%s", ctime(&now));
 
     if (file != NULL)
        erts_fdprintf(fd, "The error occurred in file %s, line %d\n", file, line);

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -34,6 +34,8 @@
         {dontroute,       boolean()} |
         {drop_membership, {inet:ip_address(), inet:ip_address()}} |
         {header,          non_neg_integer()} |
+        {high_msgq_watermark, pos_integer()} |
+        {low_msgq_watermark, pos_integer()} |
         {mode,            list | binary} | list | binary |
         {multicast_if,    inet:ip_address()} |
         {multicast_loop,  boolean()} |
@@ -56,6 +58,8 @@
         deliver |
         dontroute |
         header |
+        high_msgq_watermark |
+        low_msgq_watermark |
         mode |
         multicast_if |
         multicast_loop |

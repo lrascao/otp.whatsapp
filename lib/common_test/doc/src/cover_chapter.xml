@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2006</year><year>2012</year>
+      <year>2006</year><year>2013</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -74,12 +74,6 @@
       executed during the test. In overview mode, only the code
       coverage overview page gets printed.</p>
 
-    <p><em>Note:</em> Currently, for Common Test to be able to print
-      code coverage HTML files for the modules included in the
-      analysis, the source code files of these modules must be
-      located in the same directory as the corresponding <c>.beam</c>
-      files. This is a limitation that will be removed later.</p>
-
     <p>You can choose to export and import code coverage data between
       tests. If you specify the name of an export file in the cover
       specification file, Common Test will export collected coverage
@@ -100,7 +94,7 @@
     <p><c>$ ct_run -dir $TESTOBJS/db -cover $TESTOBJS/db/config/db.coverspec</c></p>
     
     <p>You may also pass the cover specification file name in a
-      call to <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c>, by adding a <c>{cover,CoverSpec}</c>
+      call to <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>, by adding a <c>{cover,CoverSpec}</c>
       tuple to the <c>Opts</c> argument. Also, you can of course 
       enable code coverage in your test specifications (read
       more in the chapter about 
@@ -108,8 +102,8 @@
       specifications</seealso>).</p>
   </section>
 
-  <marker id="cover_stop"></marker>
   <section>
+  <marker id="cover_stop"></marker>
     <title>Stopping the cover tool when tests are completed</title>
     <p>By default the Cover tool is automatically stopped when the
       tests are completed. This causes the original (non cover
@@ -126,8 +120,8 @@
 
     <p>The option can be set by using the <c>-cover_stop</c> flag with
       <c>ct_run</c>, by adding <c>{cover_stop,true|false}</c> to the
-      Opts argument to <c><seealso
-      marker="ct#run_test-1">ct:run_test/1</seealso></c>, or by adding
+      Opts argument to <seealso
+      marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>, or by adding
       a <c>cover_stop</c> term in your test specification (see chapter
       about <seealso
       marker="run_test_chapter#test_specifications">test
@@ -195,8 +189,8 @@
        specification file for Common Test).</p>
   </section>
 
-  <marker id="cross_cover"/>
   <section>
+  <marker id="cross_cover"/>
     <title>Cross cover analysis</title>
     <p>The cross cover mechanism allows cover analysis of modules
     across multiple tests. It is useful if some code, e.g. a library

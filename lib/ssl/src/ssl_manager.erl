@@ -30,7 +30,7 @@
 	 lookup_trusted_cert/4,
 	 new_session_id/1, clean_cert_db/2,
 	 register_session/2, register_session/3, invalidate_session/2,
-	 invalidate_session/3, clear_pem_cache/0]).
+	 invalidate_session/3, clear_pem_cache/0, manager_name/1]).
 
 % Spawn export
 -export([init_session_validator/1]).
@@ -64,6 +64,18 @@
 %%====================================================================
 %% API
 %%====================================================================
+
+%%--------------------------------------------------------------------
+-spec manager_name(normal | dist) -> atom().
+%%
+%% Description: Returns the registered name of the ssl manager process
+%% in the operation modes 'normal' and 'dist'.
+%%--------------------------------------------------------------------
+manager_name(normal) ->
+    ?MODULE;
+manager_name(dist) ->
+    list_to_atom(atom_to_list(?MODULE) ++ "dist").
+
 %%--------------------------------------------------------------------
 -spec start_link(list()) -> {ok, pid()} | ignore | {error, term()}.
 %%
@@ -71,7 +83,8 @@
 %% and certificate caching.
 %%--------------------------------------------------------------------
 start_link(Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [?MODULE, Opts], []).
+    DistMangerName = manager_name(normal),
+    gen_server:start_link({local, DistMangerName}, ?MODULE, [DistMangerName, Opts], []).
 
 %%--------------------------------------------------------------------
 -spec start_link_dist(list()) -> {ok, pid()} | ignore | {error, term()}.
@@ -80,7 +93,8 @@ start_link(Opts) ->
 %% be used by the erlang distribution. Note disables soft upgrade!
 %%--------------------------------------------------------------------
 start_link_dist(Opts) ->
-    gen_server:start_link({local, ssl_manager_dist}, ?MODULE, [ssl_manager_dist, Opts], []).
+    DistMangerName = manager_name(dist),
+    gen_server:start_link({local, DistMangerName}, ?MODULE, [DistMangerName, Opts], []).
 
 %%--------------------------------------------------------------------
 -spec connection_init(binary()| {der, list()}, client | server) ->
@@ -100,11 +114,11 @@ connection_init(Trustedcerts, Role) ->
 %%--------------------------------------------------------------------
 -spec cache_pem_file(binary(), term()) -> {ok, term()} | {error, reason()}.
 %%		    
-%% Description: Cach a pem file and return its content.
+%% Description: Cache a pem file and return its content.
 %%--------------------------------------------------------------------
 cache_pem_file(File, DbHandle) ->
-    MD5 = crypto:md5(File),
-    case ssl_certificate_db:lookup_cached_pem(DbHandle, MD5) of
+    MD5 = crypto:hash(md5, File),
+    case ssl_pkix_db:lookup_cached_pem(DbHandle, MD5) of
 	[{Content,_}] ->
 	    {ok, Content};
 	[Content] ->
@@ -120,7 +134,7 @@ cache_pem_file(File, DbHandle) ->
 %%--------------------------------------------------------------------
 clear_pem_cache() ->
     %% Not supported for distribution at the moement, should it be?
-    put(ssl_manager, ssl_manager),
+    put(ssl_manager, manager_name(normal)),
     call(unconditionally_clear_pem_cache).
 
 %%--------------------------------------------------------------------
@@ -132,7 +146,7 @@ clear_pem_cache() ->
 %% serialnumber(), issuer()}.
 %% --------------------------------------------------------------------
 lookup_trusted_cert(DbHandle, Ref, SerialNumber, Issuer) ->
-    ssl_certificate_db:lookup_trusted_cert(DbHandle, Ref, SerialNumber, Issuer).
+    ssl_pkix_db:lookup_trusted_cert(DbHandle, Ref, SerialNumber, Issuer).
 
 %%--------------------------------------------------------------------
 -spec new_session_id(integer()) -> session_id().
@@ -194,7 +208,7 @@ init([Name, Opts]) ->
     CacheCb = proplists:get_value(session_cb, Opts, ssl_session_cache),
     SessionLifeTime =  
 	proplists:get_value(session_lifetime, Opts, ?'24H_in_sec'),
-    CertDb = ssl_certificate_db:create(),
+    CertDb = ssl_pkix_db:create(),
     SessionCache = CacheCb:init(proplists:get_value(session_cb_init_args, Opts, [])),
     Timer = erlang:send_after(SessionLifeTime * 1000 + 5000, 
 			      self(), validate_sessions),
@@ -227,7 +241,7 @@ handle_call({{connection_init, Trustedcerts, _Role}, Pid}, _From,
 		   session_cache = Cache} = State) ->
     Result = 
 	try
-	    {ok, Ref} = ssl_certificate_db:add_trusted_certs(Pid, Trustedcerts, Db),
+	    {ok, Ref} = ssl_pkix_db:add_trusted_certs(Pid, Trustedcerts, Db),
 	    {ok, Ref, CertDb, FileRefDb, PemChace, Cache}
 	catch
 	    _:Reason ->
@@ -244,7 +258,7 @@ handle_call({{new_session_id,Port}, _},
 
 handle_call({{cache_pem, File}, _Pid}, _,
 	    #state{certificate_db = Db} = State) ->
-    try ssl_certificate_db:cache_pem_file(File, Db) of
+    try ssl_pkix_db:cache_pem_file(File, Db) of
 	Result ->
 	    {reply, Result, State}
     catch 
@@ -252,7 +266,7 @@ handle_call({{cache_pem, File}, _Pid}, _,
 	    {reply, {error, Reason}, State}
     end;
 handle_call({unconditionally_clear_pem_cache, _},_, #state{certificate_db = [_,_,PemChace]} = State) ->
-    ssl_certificate_db:clear(PemChace),
+    ssl_pkix_db:clear(PemChace),
     {reply, ok,  State}.
 
 %%--------------------------------------------------------------------
@@ -315,11 +329,11 @@ handle_info({delayed_clean_session, Key}, #state{session_cache = Cache,
     {noreply, State};
 
 handle_info(clear_pem_cache, #state{certificate_db = [_,_,PemChace]} = State) ->
-    case ssl_certificate_db:db_size(PemChace) of
+    case ssl_pkix_db:db_size(PemChace) of
 	N  when N < ?NOT_TO_BIG ->
 	    ok;
 	_ ->
-	    ssl_certificate_db:clear(PemChace)
+	    ssl_pkix_db:clear(PemChace)
     end,
     erlang:send_after(?CLEAR_PEM_CACHE, self(), clear_pem_cache),
     {noreply, State};
@@ -328,7 +342,7 @@ handle_info(clear_pem_cache, #state{certificate_db = [_,_,PemChace]} = State) ->
 handle_info({clean_cert_db, Ref, File},
 	    #state{certificate_db = [CertDb,RefDb, PemCache]} = State) ->
     
-    case ssl_certificate_db:lookup(Ref, RefDb) of
+    case ssl_pkix_db:lookup(Ref, RefDb) of
 	undefined -> %% Alredy cleaned
 	    ok;
 	_ ->
@@ -357,7 +371,7 @@ terminate(_Reason, #state{certificate_db = Db,
 			  session_cache_cb = CacheCb,
 			  session_validation_timer = Timer}) ->
     erlang:cancel_timer(Timer),
-    ssl_certificate_db:remove(Db),
+    ssl_pkix_db:remove(Db),
     CacheCb:terminate(SessionCache),
     ok.
 
@@ -466,17 +480,17 @@ new_id(Port, Tries, Cache, CacheCb) ->
     end.
 
 clean_cert_db(Ref, CertDb, RefDb, PemCache, File) ->
-    case ssl_certificate_db:ref_count(Ref, RefDb, 0) of
+    case ssl_pkix_db:ref_count(Ref, RefDb, 0) of
 	0 ->	  
-	    MD5 = crypto:md5(File),
-	    case ssl_certificate_db:lookup_cached_pem(PemCache, MD5) of
+	    MD5 = crypto:hash(md5, File),
+	    case ssl_pkix_db:lookup_cached_pem(PemCache, MD5) of
 		[{Content, Ref}] ->
-		    ssl_certificate_db:insert(MD5, Content, PemCache);		
+		    ssl_pkix_db:insert(MD5, Content, PemCache);		
 		_ ->
 		    ok
 	    end,
-	    ssl_certificate_db:remove(Ref, RefDb),
-	    ssl_certificate_db:remove_trusted_certs(Ref, CertDb);
+	    ssl_pkix_db:remove(Ref, RefDb),
+	    ssl_pkix_db:remove_trusted_certs(Ref, CertDb);
 	_ ->
 	    ok
     end.

@@ -1,3 +1,4 @@
+%% -*- coding: utf-8 -*-
 %%
 %% %CopyrightBegin%
 %% 
@@ -126,7 +127,7 @@ build_html(SFd,DFd,Encoding,Functions) ->
     build_html(SFd,DFd,Encoding,file:read_line(SFd),1,Functions,false).
 
 build_html(SFd,DFd,Encoding,{ok,Str},L,[{F,A,L}|Functions],_IsFuncDef) ->
-    FALink = http_uri:encode(F++"-"++integer_to_list(A)),
+    FALink = test_server_ctrl:uri_encode(F++"-"++integer_to_list(A),utf8),
     file:write(DFd,["<a name=\"",to_raw_list(FALink,Encoding),"\"/>"]),
     build_html(SFd,DFd,Encoding,{ok,Str},L,Functions,true);
 build_html(SFd,DFd,Encoding,{ok,Str},L,[{clause,L}|Functions],_IsFuncDef) ->
@@ -214,7 +215,7 @@ html_encoding(utf8) ->
 %%% from the source.
 %%%
 %%% Example: if the encoding of the file is utf8, and we have a string
-%%% containing "å" = [229], then we need to convert this to [195,165]
+%%% containing "Ã¥" = [229], then we need to convert this to [195,165]
 %%% before writing. Note that this conversion is only necessary
 %%% because the destination file is not (necessarily) opened with utf8
 %%% encoding - it is opened with default encoding in order to allow

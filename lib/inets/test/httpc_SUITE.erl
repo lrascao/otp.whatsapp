@@ -83,12 +83,14 @@ real_requests()->
      stream_through_fun,
      stream_through_mfa,
      streaming_error,
-     inet_opts
+     inet_opts,
+     invalid_headers
     ].
 
 only_simulated() ->
     [
      cookie,
+     cookie_profile,
      trace,
      stream_once,
      no_content_204,
@@ -143,6 +145,22 @@ init_per_group(misc = Group, Config) ->
     ok = httpc:set_options([{ipfamily, Inet}]),
     Config;
 
+init_per_group(Group, Config0) when Group =:= sim_https; Group =:= https->
+    start_apps(Group),
+    StartSsl = try ssl:start()
+    catch
+	Error:Reason ->
+	    {skip, lists:flatten(io_lib:format("Failed to start apps for https Error=~p Reason=~p", [Error, Reason]))}
+    end,
+    case StartSsl of
+	{error, {already_started, _}} ->
+	    do_init_per_group(Group, Config0);
+	ok ->
+	    do_init_per_group(Group, Config0);
+	_ ->
+	    StartSsl
+    end;
+
 init_per_group(Group, Config0) ->
     start_apps(Group),
     Config = proplists:delete(port, Config0),
@@ -151,7 +169,10 @@ init_per_group(Group, Config0) ->
 
 end_per_group(_, _Config) ->
     ok.
-
+do_init_per_group(Group, Config0) ->
+    Config = proplists:delete(port, Config0),
+    Port = server_start(Group, server_config(Group, Config)),
+    [{port, Port} | Config].
 %%--------------------------------------------------------------------
 init_per_testcase(pipeline, Config) ->
     inets:start(httpc, [{profile, pipeline}]),
@@ -275,9 +296,6 @@ trace(Config) when is_list(Config) ->
 pipeline(Config) when is_list(Config) ->
     Request  = {url(group_name(Config), "/dummy.html", Config), []},
     {ok, _} = httpc:request(get, Request, [], [], pipeline),
-    
-    %% Make sure pipeline session is registerd
-    test_server:sleep(4000),
     keep_alive_requests(Request, pipeline).
 
 %%--------------------------------------------------------------------
@@ -285,9 +303,6 @@ pipeline(Config) when is_list(Config) ->
 persistent_connection(Config) when is_list(Config) ->
     Request  = {url(group_name(Config), "/dummy.html", Config), []},
     {ok, _} = httpc:request(get, Request, [], [], persistent),
-
-    %% Make sure pipeline session is registerd
-    test_server:sleep(4000),
     keep_alive_requests(Request, persistent).
 
 %%-------------------------------------------------------------------------
@@ -309,13 +324,8 @@ async(Config) when is_list(Config) ->
 
     {ok, NewRequestId} =
 	httpc:request(get, Request, [], [{sync, false}]),
-    ok = httpc:cancel_request(NewRequestId),
-    receive
-	{http, {NewRequestId, _}} ->
-	    ct:fail(http_cancel_request_failed)
-    after 3000 ->
-	    ok
-    end.
+    ok = httpc:cancel_request(NewRequestId).
+
 %%-------------------------------------------------------------------------
 save_to_file() ->
     [{doc, "Test to save the http body to a file"}].
@@ -488,8 +498,36 @@ cookie(Config) when is_list(Config) ->
     {ok, {{_,200,_}, [_ | _], [_|_]}}
 	= httpc:request(get, Request1, [], []),
 
+   [{session_cookies, [_|_]}] = httpc:which_cookies(httpc:default_profile()),
+
     ets:delete(cookie),
     ok = httpc:set_options([{cookies, disabled}]).
+
+
+
+%%-------------------------------------------------------------------------
+cookie_profile() ->
+    [{doc, "Test cookies on a non default profile."}].
+cookie_profile(Config) when is_list(Config) ->   
+    inets:start(httpc, [{profile, cookie_test}]),
+    ok = httpc:set_options([{cookies, enabled}], cookie_test),
+
+    Request0 = {url(group_name(Config), "/cookie.html", Config), []},
+
+    {ok, {{_,200,_}, [_ | _], [_|_]}}
+	= httpc:request(get, Request0, [], [], cookie_test),
+
+    %% Populate table to be used by the "dummy" server
+    ets:new(cookie, [named_table, public, set]),
+    ets:insert(cookie, {cookies, true}),
+
+    Request1 = {url(group_name(Config), "/", Config), []},
+
+    {ok, {{_,200,_}, [_ | _], [_|_]}}
+	= httpc:request(get, Request1, [], [], cookie_test),
+
+    ets:delete(cookie),
+    inets:stop(httpc, cookie_test).
 
 %%-------------------------------------------------------------------------
 headers_as_is(doc) ->
@@ -795,6 +833,10 @@ headers_dummy(Config) when is_list(Config) ->
 
 %%-------------------------------------------------------------------------
 
+invalid_headers(Config) ->
+    Request  = {url(group_name(Config), "/dummy.html", Config), [{"cookie", undefined}]},
+    {error, _} = httpc:request(get, Request, [], []).
+
 remote_socket_close(Config) when is_list(Config) ->
     URL = url(group_name(Config), "/just_close.html", Config),
     {error, socket_closed_remotely} = httpc:request(URL).
@@ -1046,6 +1088,8 @@ server_config(_, _) ->
 
 start_apps(https) ->
     inets_test_lib:start_apps([crypto, public_key, ssl]);
+start_apps(sim_https) ->
+    inets_test_lib:start_apps([crypto, public_key, ssl]);
 start_apps(_) ->
     ok.
 
@@ -1115,7 +1159,7 @@ receive_replys([ID|IDs]) ->
 	{http, {ID, {{_, 200, _}, [_|_], _}}} ->
 	    receive_replys(IDs);
 	{http, {Other, {{_, 200, _}, [_|_], _}}} ->
-	    ct:fail({recived_canceld_id, Other})
+	    ct:pal({recived_canceld_id, Other})
     end.
 
 %% Perform a synchronous stop
@@ -1659,6 +1703,15 @@ receive_streamed_body(RequestId, Body, Pid) ->
     ct:print("~p:receive_streamed_body -> requested next stream ~n", [?MODULE]),
     receive
 	{http, {RequestId, stream, BinBodyPart}} ->
+	    %% Make sure the httpc hasn't sent us the next 'stream'
+	    %% without our request.
+	    receive
+		{http, {RequestId, stream, _}} = Msg ->
+		    ct:fail({unexpected_flood_of_stream, Msg})
+	    after
+		1000 ->
+		    ok
+	    end,
 	    receive_streamed_body(RequestId,
 				  <<Body/binary, BinBodyPart/binary>>,
 				  Pid);

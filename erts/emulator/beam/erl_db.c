@@ -266,9 +266,10 @@ static void schedule_free_dbtable(DbTable* tb)
      *               function has returned).
      */
     ASSERT(erts_refc_read(&tb->common.ref, 0) == 0);
-    erts_schedule_thr_prgr_later_op(free_dbtable,
-				    (void *) tb,
-				    &tb->release.data);
+    erts_schedule_thr_prgr_later_cleanup_op(free_dbtable,
+					    (void *) tb,
+					    &tb->release.data,
+					    sizeof(DbTable));
 }
 
 static ERTS_INLINE void db_init_lock(DbTable* tb, int use_frequent_read_lock,
@@ -2237,7 +2238,7 @@ static BIF_RETTYPE ets_select_trap_1(BIF_ALIST_1)
     CHECK_TABLES();
 
     tptr = tuple_val(a1);
-    ASSERT(arityval(*tptr) >= 1)
+    ASSERT(arityval(*tptr) >= 1);
 
     if ((tb = db_get_table(p, tptr[1], DB_READ, kind)) == NULL) {
 	BIF_ERROR(p, BADARG);
@@ -2404,7 +2405,7 @@ static BIF_RETTYPE ets_select_count_1(BIF_ALIST_1)
     CHECK_TABLES();
 
     tptr = tuple_val(a1);
-    ASSERT(arityval(*tptr) >= 1)
+    ASSERT(arityval(*tptr) >= 1);
     if ((tb = db_get_table(p, tptr[1], DB_READ, kind)) == NULL) {
 	BIF_ERROR(p, BADARG);
     }
@@ -3803,6 +3804,13 @@ erts_db_foreach_offheap(DbTable *tb,
 			void *arg)
 {
     tb->common.meth->db_foreach_offheap(tb, func, arg);
+}
+
+/* retrieve max number of ets tables */
+Uint
+erts_db_get_max_tabs()
+{
+    return db_max_tabs;
 }
 
 /*

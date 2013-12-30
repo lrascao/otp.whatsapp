@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012. All Rights Reserved.
+%% Copyright Ericsson AB 2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -84,7 +84,9 @@ all() ->
 	     no_host,
 	     no_port,
 	     invalid_opt,
+	     timeout_close_session,
 	     get,
+	     timeout_get,
 	     get_xpath,
 	     get_config,
 	     get_config_xpath,
@@ -143,11 +145,10 @@ init_per_suite(Config) ->
     end.
 
 end_per_suite(Config) ->
-    PrivDir = ?config(priv_dir, Config),
     ?NS:stop(?config(server,Config)),
     ssh:stop(),
     crypto:stop(),
-    remove_id_keys(PrivDir),
+    remove_id_keys(Config),
     Config.
 
 hello(Config) ->
@@ -344,12 +345,30 @@ invalid_opt(Config) ->
     {error,{invalid_option,{some_other_opt,true}}} = ct_netconfc:open(Opts2),
     ok.
 
+timeout_close_session(Config) ->
+    DataDir = ?config(data_dir,Config),
+    {ok,Client} = open_success(DataDir),
+    ?NS:expect('close-session'),
+    true = erlang:is_process_alive(Client),
+    {error,timeout} = ct_netconfc:close_session(Client,1000),
+    false = erlang:is_process_alive(Client),
+    ok.
+
 get(Config) ->
     DataDir = ?config(data_dir,Config),
     {ok,Client} = open_success(DataDir),
     Data = [{server,[{xmlns,"myns"}],[{name,[],["myserver"]}]}],
     ?NS:expect_reply('get',{data,Data}),
     {ok,Data} = ct_netconfc:get(Client,{server,[{xmlns,"myns"}],[]}),
+    ?NS:expect_do_reply('close-session',close,ok),
+    ?ok = ct_netconfc:close_session(Client),
+    ok.
+
+timeout_get(Config) ->
+    DataDir = ?config(data_dir,Config),
+    {ok,Client} = open_success(DataDir),
+    ?NS:expect('get'),
+    {error,timeout} = ct_netconfc:get(Client,{server,[{xmlns,"myns"}],[]},1000),
     ?NS:expect_do_reply('close-session',close,ok),
     ?ok = ct_netconfc:close_session(Client),
     ok.
@@ -698,7 +717,7 @@ timeout_receive_chunked_data(Config) ->
     ?ok = ct_netconfc:close_session(Client),
     ok.
 
-%% Same as receive_chunked_data, but timeout waiting for last part.
+%% Same as receive_chunked_data, but close while waiting for last part.
 close_while_waiting_for_chunked_data(Config) ->
     DataDir = ?config(data_dir,Config),
     {ok,Client} = open_success(DataDir),
@@ -886,6 +905,19 @@ create_subscription(Config) ->
     ?NS:expect_do_reply('close-session',close,ok),
     ?ok = ct_netconfc:close_session(Client8),
 
+    %% Multiple filters
+    {ok,Client9} = open_success(DataDir),
+    ?NS:expect_reply({'create-subscription',[stream,filter]},ok),
+    MultiFilters = [{event,[{xmlns,"http://my.namespaces.com/event"}],
+		     [{eventClass,["fault"]},
+		      {severity,["critical"]}]},
+		    {event,[{xmlns,"http://my.namespaces.com/event"}],
+		     [{eventClass,["fault"]},
+		      {severity,["major"]}]}],
+    ?ok = ct_netconfc:create_subscription(Client9,MultiFilters),
+    ?NS:expect_do_reply('close-session',close,ok),
+    ?ok = ct_netconfc:close_session(Client9),
+
     ok.
 
 receive_event(Config) ->
@@ -1035,10 +1067,12 @@ make_dsa_files(Config, Type) ->
     file:write_file(DSAPrivateFile, PemBin),
     ok.
 
+
 %%--------------------------------------------------------------------
-%% Creates a dsa key (OBS: for testing only)
+%% @doc Creates a dsa key (OBS: for testing only)
 %%   the sizes are in bytes
-%% gen_dsa(::integer()) -> {::atom(), ::binary(), ::opaque()}
+%% @spec (::integer()) -> {::atom(), ::binary(), ::opaque()}
+%% @end
 %%--------------------------------------------------------------------
 gen_dsa(LSize,NSize) when is_integer(LSize), is_integer(NSize) ->
     Key = gen_dsa2(LSize, NSize),
@@ -1047,7 +1081,6 @@ gen_dsa(LSize,NSize) when is_integer(LSize), is_integer(NSize) ->
 encode_key(Key = #'DSAPrivateKey'{}) ->
     Der = public_key:der_encode('DSAPrivateKey', Key),
     {'DSAPrivateKey', Der, not_encrypted}.
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% DSA key generation  (OBS: for testing only)
@@ -1058,67 +1091,70 @@ gen_dsa2(LSize, NSize) ->
     Q  = prime(NSize),  %% Choose N-bit prime Q
     X0 = prime(LSize),
     P0 = prime((LSize div 2) +1),
-
+    
     %% Choose L-bit prime modulus P such that p-1 is a multiple of q.
     case dsa_search(X0 div (2*Q*P0), P0, Q, 1000) of
-	error ->
+	error -> 
 	    gen_dsa2(LSize, NSize);
-	P ->
-	    G = crypto:mod_exp(2, (P-1) div Q, P), % Choose G a number whose multiplicative order modulo p is q.
+	P ->	    
+	    G = crypto:mod_pow(2, (P-1) div Q, P), % Choose G a number whose multiplicative order modulo p is q.
 	    %%                 such that This may be done by setting g = h^(p-1)/q mod p, commonly h=2 is used.
-
+	    
 	    X = prime(20),               %% Choose x by some random method, where 0 < x < q.
-	    Y = crypto:mod_exp(G, X, P), %% Calculate y = g^x mod p.
-
-	    #'DSAPrivateKey'{version=0, p=P, q=Q, g=G, y=Y, x=X}
+	    Y = crypto:mod_pow(G, X, P), %% Calculate y = g^x mod p.
+	    
+	    #'DSAPrivateKey'{version=0, p = P, q = Q, 
+			     g = crypto:bytes_to_integer(G), y = crypto:bytes_to_integer(Y), x = X}
     end.
-
+    
 %% See fips_186-3.pdf
 dsa_search(T, P0, Q, Iter) when Iter > 0 ->
     P = 2*T*Q*P0 + 1,
-    case is_prime(crypto:mpint(P), 50) of
+    case is_prime(P, 50) of
 	true -> P;
 	false -> dsa_search(T+1, P0, Q, Iter-1)
     end;
-dsa_search(_,_,_,_) ->
+dsa_search(_,_,_,_) -> 
     error.
 
 
 %%%%%%% Crypto Math %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 prime(ByteSize) ->
     Rand = odd_rand(ByteSize),
-    crypto:erlint(prime_odd(Rand, 0)).
+    prime_odd(Rand, 0).
 
 prime_odd(Rand, N) ->
     case is_prime(Rand, 50) of
-	true ->
+	true -> 
 	    Rand;
-	false ->
-	    NotPrime = crypto:erlint(Rand),
-	    prime_odd(crypto:mpint(NotPrime+2), N+1)
+	false -> 
+	    prime_odd(Rand+2, N+1)
     end.
 
 %% see http://en.wikipedia.org/wiki/Fermat_primality_test
 is_prime(_, 0) -> true;
-is_prime(Candidate, Test) ->
-    CoPrime = odd_rand(<<0,0,0,4, 10000:32>>, Candidate),
-    case crypto:mod_exp(CoPrime, Candidate, Candidate) of
-	CoPrime -> is_prime(Candidate, Test-1);
-	_       -> false
-    end.
+is_prime(Candidate, Test) -> 
+    CoPrime = odd_rand(10000, Candidate),
+    Result = crypto:mod_pow(CoPrime, Candidate, Candidate) ,
+    is_prime(CoPrime, crypto:bytes_to_integer(Result), Candidate, Test).
+
+is_prime(CoPrime, CoPrime, Candidate, Test) ->
+    is_prime(Candidate, Test-1);
+is_prime(_,_,_,_) ->
+    false.
 
 odd_rand(Size) ->
     Min = 1 bsl (Size*8-1),
     Max = (1 bsl (Size*8))-1,
-    odd_rand(crypto:mpint(Min), crypto:mpint(Max)).
+    odd_rand(Min, Max).
 
 odd_rand(Min,Max) ->
-    Rand = <<Sz:32, _/binary>> = crypto:rand_uniform(Min,Max),
-    BitSkip = (Sz+4)*8-1,
-    case Rand of
-	Odd  = <<_:BitSkip,  1:1>> -> Odd;
-	Even = <<_:BitSkip,  0:1>> ->
-	    crypto:mpint(crypto:erlint(Even)+1)
+    Rand = crypto:rand_uniform(Min,Max),
+    case Rand rem 2 of
+	0 -> 
+	    Rand + 1;
+	_ -> 
+	    Rand
     end.
 
 copyfile(SrcDir, DstDir, Fn) ->

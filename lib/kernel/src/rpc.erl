@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -388,13 +388,8 @@ server_call(Node, Name, ReplyWrapper, Msg)
 		{'DOWN', Ref, _, _, _} ->
 		    {error, nodedown};
 		{ReplyWrapper, Node, Reply} ->
-		    erlang:demonitor(Ref),
-		    receive
-			{'DOWN', Ref, _, _, _} ->
-			    Reply
-		    after 0 ->
-			    Reply
-		    end
+		    erlang:demonitor(Ref, [flush]),
+		    Reply
 	    end
     end.
 
@@ -412,7 +407,7 @@ cast(Node, Mod, Fun, Args) ->
     true.
 
 
-%% Asynchronous broadcast, returns nothing, it's just send'n prey
+%% Asynchronous broadcast, returns nothing, it's just send 'n' pray
 -spec abcast(Name, Msg) -> abcast when
       Name :: atom(),
       Msg :: term().
@@ -499,17 +494,6 @@ start_monitor(Node, Name) ->
 	    {Node, Ref};
        true ->
 	    {Node,erlang:monitor(process, {Name, Node})}
-    end.
-
-%% Cancels a monitor started with Ref=erlang:monitor(_, _),
-%% i.e return value {Node, Ref} from start_monitor/2 above.
-unmonitor(Ref) when is_reference(Ref) ->
-    erlang:demonitor(Ref),
-    receive
-	{'DOWN', Ref, _, _, _} ->
-	    true
-    after 0 ->
-	    true
     end.
 
 
@@ -635,10 +619,10 @@ rec_nodes(Name, [{N,R} | Tail], Badnodes, Replies) ->
 	    rec_nodes(Name, Tail, [N|Badnodes], Replies);
 	{?NAME, N, {nonexisting_name, _}} ->  
 	    %% used by sbcast()
-	    unmonitor(R),
+	    erlang:demonitor(R, [flush]),
 	    rec_nodes(Name, Tail, [N|Badnodes], Replies);
 	{Name, N, Reply} ->  %% Name is bound !!!
-	    unmonitor(R),
+	    erlang:demonitor(R, [flush]),
 	    rec_nodes(Name, Tail, Badnodes, [Reply|Replies])
     end.
 

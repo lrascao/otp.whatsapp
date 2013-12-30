@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -49,8 +49,8 @@
 
 	 read_mib/1, 
  
-	 log_to_txt/5, log_to_txt/6, log_to_txt/7,
-	 log_to_io/4,  log_to_io/5,  log_to_io/6,
+	 log_to_txt/5, log_to_txt/6, log_to_txt/7, log_to_txt/8, 
+	 log_to_io/4,  log_to_io/5,  log_to_io/6,  log_to_io/7, 
 	 change_log_size/2,
 
 	 octet_string_to_bits/1, bits_to_octet_string/1, 
@@ -89,6 +89,37 @@
 	 change_log_size/1
 
 	]).
+
+-export_type([
+	      dir/0, 
+	      snmp_timer/0, 
+
+	      engine_id/0, 
+	      tdomain/0, 
+	      community/0, 
+	      mms/0, 
+	      version/0, 
+	      sec_model/0, 
+	      sec_name/0, 
+	      sec_level/0, 
+
+	      oid/0,
+	      varbind/0, 
+	      ivarbind/0, 
+	      asn1_type/0, 
+	      table_info/0, 
+	      variable_info/0, 
+	      me/0, 
+	      trap/0, 
+	      notification/0, 
+	      pdu/0, 
+	      trappdu/0, 
+	      mib/0, 
+	      mib_name/0, 
+ 
+	      void/0
+	     ]).
+
 
 %% This is for XREF
 -deprecated([{c,                     1, eventually},
@@ -141,6 +172,42 @@
  
 
 -define(APPLICATION, snmp).
+-define(ATL_BLOCK_DEFAULT, true).
+
+-include_lib("snmp/include/snmp_types.hrl").
+
+
+%%-----------------------------------------------------------------
+%% Types
+%%-----------------------------------------------------------------
+
+-type dir()           :: string().
+-type snmp_timer()    :: #snmp_incr_timer{}.
+
+-type engine_id()     :: string().
+-type tdomain()       :: transportDomainUdpIpv4 | transportDomainUdpIpv6.
+-type community()     :: string().
+-type mms()           :: non_neg_integer().
+-type version()       :: v1 | v2 | v3.
+-type sec_model()     :: any | v1 | v2c | usm.
+-type sec_name()      :: string().
+-type sec_level()     :: noAuthNoPriv | authNoPriv | authPriv.
+
+-type oid()           :: [non_neg_integer()].
+-type varbind()       :: #varbind{}.
+-type ivarbind()      :: #ivarbind{}.
+-type asn1_type()     :: #asn1_type{}.
+-type table_info()    :: #table_info{}.
+-type variable_info() :: #variable_info{}.
+-type me()            :: #me{}.
+-type trap()          :: #trap{}.
+-type notification()  :: #notification{}.
+-type mib()           :: #mib{}.
+-type mib_name()      :: string().
+-type pdu()           :: #pdu{}.
+-type trappdu()       :: #trappdu{}.
+
+-type void()          :: term().
 
 
 %%-----------------------------------------------------------------
@@ -838,18 +905,60 @@ read_mib(FileName) ->
 %%%-----------------------------------------------------------------
 
 log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile) -> 
-    snmp_log:log_to_txt(LogName, LogFile, LogDir, Mibs, OutFile).
+    Block = ?ATL_BLOCK_DEFAULT, 
+    Start = null, 
+    Stop  = null, 
+    log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block, Start, Stop).
+
+log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block) 
+  when ((Block =:= true) orelse (Block =:= false)) -> 
+    Start = null, 
+    Stop  = null, 
+    log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block, Start, Stop);
 log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Start) -> 
-    snmp_log:log_to_txt(LogName, LogFile, LogDir, Mibs, OutFile, Start).
+    Block = ?ATL_BLOCK_DEFAULT, 
+    Stop  = null, 
+    log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block, Start, Stop).
+
+log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block, Start) 
+  when ((Block =:= true) orelse (Block =:= false)) -> 
+    Stop  = null, 
+    log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block, Start, Stop);
 log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Start, Stop) -> 
-    snmp_log:log_to_txt(LogName, LogFile, LogDir, Mibs, OutFile, Start, Stop).
+    Block = ?ATL_BLOCK_DEFAULT, 
+    log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block, Start, Stop).
+
+log_to_txt(LogDir, Mibs, OutFile, LogName, LogFile, Block, Start, Stop) -> 
+    snmp_log:log_to_txt(LogName, Block, LogFile, LogDir, Mibs, OutFile, 
+			Start, Stop).
+
 
 log_to_io(LogDir, Mibs, LogName, LogFile) -> 
-    snmp_log:log_to_io(LogName, LogFile, LogDir, Mibs).
+    Block = ?ATL_BLOCK_DEFAULT, 
+    Start = null, 
+    Stop  = null, 
+    log_to_io(LogDir, Mibs, LogName, LogFile, Block, Start, Stop).
+
+log_to_io(LogDir, Mibs, LogName, LogFile, Block) 
+  when ((Block =:= true) orelse (Block =:= false)) -> 
+    Start = null, 
+    Stop  = null, 
+    log_to_io(LogDir, Mibs, LogName, LogFile, Block, Start, Stop);
 log_to_io(LogDir, Mibs, LogName, LogFile, Start) -> 
-    snmp_log:log_to_io(LogName, LogFile, LogDir, Mibs, Start).
+    Block = ?ATL_BLOCK_DEFAULT, 
+    Stop  = null, 
+    log_to_io(LogDir, Mibs, LogName, LogFile, Block, Start, Stop).
+
+log_to_io(LogDir, Mibs, LogName, LogFile, Block, Start) 
+  when ((Block =:= true) orelse (Block =:= false)) -> 
+    Stop  = null, 
+    log_to_io(LogDir, Mibs, LogName, LogFile, Block, Start, Stop);
 log_to_io(LogDir, Mibs, LogName, LogFile, Start, Stop) -> 
-    snmp_log:log_to_io(LogName, LogFile, LogDir, Mibs, Start, Stop).
+    Block = ?ATL_BLOCK_DEFAULT, 
+    log_to_io(LogDir, Mibs, LogName, LogFile, Block, Start, Stop).
+
+log_to_io(LogDir, Mibs, LogName, LogFile, Block, Start, Stop) -> 
+    snmp_log:log_to_io(LogName, Block, LogFile, LogDir, Mibs, Start, Stop).
 
 change_log_size(LogName, NewSize) -> 
     snmp_log:change_size(LogName, NewSize).
@@ -862,12 +971,12 @@ change_log_size(LogName, NewSize) ->
 %% Usage: erl -s snmp str_apply '{Mod,Func,ArgList}'
 str_apply([Atom]) ->
     Str = atom_to_list(Atom),
-    {Mod,Func,Args} = to_erlang_term(Str),
-    apply(Mod,Func,Args).
+    {Mod, Func, Args} = to_erlang_term(Str),
+    apply(Mod, Func, Args).
 
 to_erlang_term(String) ->
     {ok, Tokens, _} = erl_scan:string(lists:append([String, ". "])),
-    {ok,Term} = erl_parse:parse_term(Tokens),
+    {ok, Term}      = erl_parse:parse_term(Tokens),
     Term.
 
 

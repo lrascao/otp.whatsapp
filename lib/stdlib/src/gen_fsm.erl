@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -422,6 +422,17 @@ wake_hib(Parent, Name, StateName, StateData, Mod, Debug) ->
 
 decode_msg(Msg,Parent, Name, StateName, StateData, Mod, Time, Debug, Hib) ->
     case Msg of
+	{system, From, get_state} ->
+	    Misc = [Name, StateName, StateData, Mod, Time],
+	    sys:handle_system_msg(get_state, From, Parent, ?MODULE, Debug,
+				  {{StateName, StateData}, Misc}, Hib);
+	{system, From, {replace_state, StateFun}} ->
+	    State = {StateName, StateData},
+	    NState = {NStateName, NStateData} = try StateFun(State)
+						catch _:_ -> State end,
+	    NMisc = [Name, NStateName, NStateData, Mod, Time],
+	    sys:handle_system_msg(replace_state, From, Parent, ?MODULE, Debug,
+				  {NState, NMisc}, Hib);
         {system, From, Req} ->
 	    sys:handle_system_msg(Req, From, Parent, ?MODULE, Debug,
 				  [Name, StateName, StateData, Mod, Time], Hib);

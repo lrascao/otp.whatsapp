@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2004-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -21,12 +21,6 @@
 %% Contains type and record definitions for all Icode data structures.
 %%
 %%=====================================================================
-
-%%---------------------------------------------------------------------
-%% THIS DOES NOT REALLY BELONG HERE -- PLEASE REMOVE ASAP!
-%%---------------------------------------------------------------------
-
--type ordset(T)	 :: [T].
 
 %%---------------------------------------------------------------------
 %% Include files needed for the compilation of this header file
@@ -67,7 +61,7 @@
                       | 'op_exact_eqeq_2' | 'suspend_msg_timeout'.
 
 -type icode_type_test()	:: 'atom' | 'bignum' | 'binary' | 'bitstr' | 'boolean'
-                         | 'cons' | 'constant' | 'fixnum' | 'float'
+                         | 'cons' | 'fixnum' | 'float'
                          | 'function' | 'function2' | 'integer' | 'list' | 'nil'
                          | 'number' | 'pid' | 'port' | 'reference' | 'tuple'
                          | {'atom', atom()} | {'integer', integer()}

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -503,8 +503,7 @@ getit(Req, DefaultName) ->
 			Pid, Reason} ->
 			   {error, Reason}
 		   end,
-	    catch erlang:demonitor(Ref2),
-	    receive {'DOWN',Ref2,_,_,_} -> ok after 0 -> ok end,
+	    catch erlang:demonitor(Ref2, [flush]),
 	    Res2
     end.
 

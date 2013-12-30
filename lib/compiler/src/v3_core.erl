@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -956,7 +956,8 @@ lc_tq(Line, E, [Fil0|Qs0], Mc, St0) ->
 		    args=[],
 		    clauses=[#iclause{anno=LAnno,pats=[],
 				      guard=Gs,body=Lps ++ [Lc]}],
-		    fc=#iclause{anno=LAnno,pats=[],guard=[],body=[Mc]}},
+		    fc=#iclause{anno=LAnno#a{anno=[compiler_generated|LA]},
+				pats=[],guard=[],body=[Mc]}},
 	     [],St2};
 	false ->
 	    {Lc,Lps,St1} = lc_tq(Line, E, Qs0, Mc, St0),
@@ -1101,7 +1102,8 @@ bc_tq1(Line, E, [Fil0|Qs0], AccVar, St0) ->
 		    clauses=[#iclause{anno=LAnno,
 				      pats=[],
 				      guard=Gs,body=Bps ++ [Bc]}],
-		    fc=#iclause{anno=LAnno,pats=[],guard=[],body=[AccVar]}},
+		    fc=#iclause{anno=LAnno#a{anno=[compiler_generated|LA]},
+				pats=[],guard=[],body=[AccVar]}},
 	     [],St};
 	false ->
 	    {Bc,Bps,St1} = bc_tq1(Line, E, Qs0, AccVar, St0),
@@ -1187,9 +1189,9 @@ list_gen_pattern(P0, Line, St) ->
 
 bc_initial_size(E, Q, St0) ->
     try
-	{ElemSzExpr,ElemSzPre,St1} = bc_elem_size(E, St0),
+	{ElemSzExpr,ElemSzPre,EVs,St1} = bc_elem_size(E, St0),
 	{V,St2} = new_var(St1),
-	{GenSzExpr,GenSzPre,St3} = bc_gen_size(Q, St2),
+	{GenSzExpr,GenSzPre,St3} = bc_gen_size(Q, EVs, St2),
 	case ElemSzExpr of
 	    #c_literal{val=ElemSz} when ElemSz rem 8 =:= 0 ->
 		NumBytesExpr = #c_literal{val=ElemSz div 8},
@@ -1214,11 +1216,13 @@ bc_initial_size(E, Q, St0) ->
 bc_elem_size({bin,_,El}, St0) ->
     case bc_elem_size_1(El, 0, []) of
 	{Bits,[]} ->
-	    {#c_literal{val=Bits},[],St0};
+	    {#c_literal{val=Bits},[],[],St0};
 	{Bits,Vars0} ->
 	    [{U,V0}|Pairs]  = sort(Vars0),
 	    F = bc_elem_size_combine(Pairs, U, [V0], []),
-	    bc_mul_pairs(F, #c_literal{val=Bits}, [], St0)
+	    Vs = [V || {_,#c_var{name=V}} <- Vars0],
+	    {E,Pre,St} = bc_mul_pairs(F, #c_literal{val=Bits}, [], St0),
+	    {E,Pre,Vs,St}
     end.
 
 bc_elem_size_1([{bin_element,_,_,{integer,_,N},Flags}|Es], Bits, Vars) ->
@@ -1260,11 +1264,11 @@ bc_add_list_1([H|T], Pre, E, St0) ->
 bc_add_list_1([], Pre, E, St) ->
     {E,reverse(Pre),St}.
 
-bc_gen_size(Q, St) ->
-    bc_gen_size_1(Q, #c_literal{val=1}, [], St).
+bc_gen_size(Q, EVs, St) ->
+    bc_gen_size_1(Q, EVs, #c_literal{val=1}, [], St).
 
-bc_gen_size_1([{generate,L,El,Gen}|Qs], E0, Pre0, St0) ->
-    bc_verify_non_filtering(El),
+bc_gen_size_1([{generate,L,El,Gen}|Qs], EVs, E0, Pre0, St0) ->
+    bc_verify_non_filtering(El, EVs),
     case Gen of
 	{var,_,ListVar} ->
 	    Lanno = lineno_anno(L, St0),
@@ -1275,16 +1279,16 @@ bc_gen_size_1([{generate,L,El,Gen}|Qs], E0, Pre0, St0) ->
 				   name=#c_literal{val=length},
 				   args=[#c_var{name=ListVar}]}},
 	    {E,Pre,St} = bc_gen_size_mul(E0, LenVar, [Set|Pre0], St1),
-	    bc_gen_size_1(Qs, E, Pre, St);
+	    bc_gen_size_1(Qs, EVs, E, Pre, St);
 	_ ->
 	    %% The only expressions we handle is literal lists.
 	    Len = bc_list_length(Gen, 0),
 	    {E,Pre,St} = bc_gen_size_mul(E0, #c_literal{val=Len}, Pre0, St0),
-	    bc_gen_size_1(Qs, E, Pre, St)
+	    bc_gen_size_1(Qs, EVs, E, Pre, St)
     end;
-bc_gen_size_1([{b_generate,_,El,Gen}|Qs], E0, Pre0, St0) ->
-    bc_verify_non_filtering(El),
-    {MatchSzExpr,Pre1,St1} = bc_elem_size(El, St0),
+bc_gen_size_1([{b_generate,_,El,Gen}|Qs], EVs, E0, Pre0, St0) ->
+    bc_verify_non_filtering(El, EVs),
+    {MatchSzExpr,Pre1,_,St1} = bc_elem_size(El, St0),
     Pre2 = reverse(Pre1, Pre0),
     {ResVar,St2} = new_var(St1),
     {BitSizeExpr,Pre3,St3} = bc_gen_bit_size(Gen, Pre2, St2),
@@ -1292,10 +1296,10 @@ bc_gen_size_1([{b_generate,_,El,Gen}|Qs], E0, Pre0, St0) ->
 				      MatchSzExpr)},
     Pre4 = [Div|Pre3],
     {E,Pre,St} = bc_gen_size_mul(E0, ResVar, Pre4, St3),
-    bc_gen_size_1(Qs, E, Pre, St);
-bc_gen_size_1([], E, Pre, St) ->
+    bc_gen_size_1(Qs, EVs, E, Pre, St);
+bc_gen_size_1([], _, E, Pre, St) ->
     {E,reverse(Pre),St};
-bc_gen_size_1(_, _, _, _) ->
+bc_gen_size_1(_, _, _, _, _) ->
     throw(impossible).
 
 bc_gen_bit_size({var,L,V}, Pre0, St0) ->
@@ -1312,13 +1316,20 @@ bc_gen_bit_size({bin,_,_}=Bin, Pre, St) ->
 bc_gen_bit_size(_, _, _) ->
     throw(impossible).
 
-bc_verify_non_filtering({bin,_,Els}) ->
-    foreach(fun({bin_element,_,{var,_,_},_,_}) -> ok;
+bc_verify_non_filtering({bin,_,Els}, EVs) ->
+    foreach(fun({bin_element,_,{var,_,V},_,_}) ->
+		   case member(V, EVs) of
+		       true -> throw(impossible);
+		       false -> ok
+		   end;
 	       (_) -> throw(impossible)
 	    end, Els);
-bc_verify_non_filtering({var,_,_}) ->
-    ok;
-bc_verify_non_filtering(_) ->
+bc_verify_non_filtering({var,_,V}, EVs) ->
+    case member(V, EVs) of
+	true -> throw(impossible);
+	false -> ok
+    end;
+bc_verify_non_filtering(_, _) ->
     throw(impossible).
 
 bc_list_length({string,_,Str}, Len) ->
@@ -1901,7 +1912,7 @@ new_in_all([Le|Les]) ->
     foldl(fun (L, Ns) -> intersection((get_anno(L))#a.ns, Ns) end,
 	  (get_anno(Le))#a.ns, Les);
 new_in_all([]) -> [].
-
+
 %% The AfterVars are the variables which are used afterwards.  We need
 %% this to work out which variables are actually exported and used
 %% from case/receive.  In subblocks/clauses the AfterVars of the block

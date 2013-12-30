@@ -277,11 +277,15 @@ int main(void)
     msg = receive_erlang_port_msg();
 
     temp = strtok(msg, ";");
+    if (temp == NULL)
+	DO_EXIT(EXIT_STDIN_BODY);
     length = strlen(temp);
     supervisor_port = safe_malloc(length + 1);
     strcpy(supervisor_port, temp);
 
     temp = strtok(NULL, ";");
+    if (temp == NULL)
+	DO_EXIT(EXIT_STDIN_BODY);
     length = strlen(temp);
     odbc_port = safe_malloc(length + 1);
     strcpy(odbc_port, temp);
@@ -1222,7 +1226,7 @@ static db_result_msg encode_out_params(db_state *state,
 					   (column.type.strlen_or_indptr_array[j]));
 			break;
                 case SQL_C_SLONG:
-                    ei_x_encode_long(&dynamic_buffer(state), ((long*)values)[j]);
+                    ei_x_encode_long(&dynamic_buffer(state), ((SQLINTEGER*)values)[j]);
                     break;
                 case SQL_C_DOUBLE:
                     ei_x_encode_double(&dynamic_buffer(state),
@@ -1819,9 +1823,17 @@ static byte * receive_erlang_port_msg(void)
 	len |= lengthstr[i];
     }
     
+    if (len <= 0 || len > 1024) {
+	DO_EXIT(EXIT_STDIN_HEADER);
+    }
+
     buffer = (byte *)safe_malloc(len);
     
     if (read_exact(buffer, len) <= 0) {
+	DO_EXIT(EXIT_STDIN_BODY);
+    }
+
+    if (buffer[len-1] != '\0') {
 	DO_EXIT(EXIT_STDIN_BODY);
     }
 

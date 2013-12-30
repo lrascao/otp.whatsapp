@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -36,7 +36,7 @@
 -export([merge/3, rmerge/3, sort/2, umerge/3, rumerge/3, usort/2]).
 
 -export([all/2,any/2,map/2,flatmap/2,foldl/3,foldr/3,filter/2,
-	 partition/2,zf/2,
+	 partition/2,zf/2,filtermap/2,
 	 mapfoldl/3,mapfoldr/3,foreach/2,takewhile/2,dropwhile/2,splitwith/2,
 	 split/2]).
 
@@ -630,7 +630,7 @@ flatlength([H|T], L) when is_list(H) ->
 flatlength([_|T], L) ->
     flatlength(T, L + 1);
 flatlength([], L) -> L.
-
+
 %% keymember(Key, Index, [Tuple]) Now a BIF!
 %% keyfind(Key, Index, [Tuple]) A BIF!
 %% keysearch(Key, Index, [Tuple]) Now a BIF!
@@ -1163,7 +1163,7 @@ rumerge(T1, []) ->
     T1;
 rumerge(T1, [H2 | T2]) ->
     lists:reverse(rumerge2_1(T1, T2, [], H2), []).
-
+
 %% all(Predicate, List)
 %% any(Predicate, List)
 %% map(Function, List)
@@ -1291,18 +1291,28 @@ partition(Pred, [H | T], As, Bs) ->
 partition(Pred, [], As, Bs) when is_function(Pred, 1) ->
     {reverse(As), reverse(Bs)}.
 
--spec zf(fun((T) -> boolean() | {'true', X}), [T]) -> [(T | X)].
+-spec filtermap(Fun, List1) -> List2 when
+      Fun :: fun((Elem) -> boolean() | {'true', Value}),
+      List1 :: [Elem],
+      List2 :: [Elem | Value],
+      Elem :: term(),
+      Value :: term().
 
-zf(F, [Hd|Tail]) ->
+filtermap(F, [Hd|Tail]) ->
     case F(Hd) of
 	true ->
-	    [Hd|zf(F, Tail)];
+	    [Hd|filtermap(F, Tail)];
 	{true,Val} ->
-	    [Val|zf(F, Tail)];
+	    [Val|filtermap(F, Tail)];
 	false ->
-	    zf(F, Tail)
+	    filtermap(F, Tail)
     end;
-zf(F, []) when is_function(F, 1) -> [].
+filtermap(F, []) when is_function(F, 1) -> [].
+
+-spec zf(fun((T) -> boolean() | {'true', X}), [T]) -> [(T | X)].
+
+zf(F, L) ->
+    filtermap(F, L).
 
 -spec foreach(Fun, List) -> ok when
       Fun :: fun((Elem :: T) -> term()),

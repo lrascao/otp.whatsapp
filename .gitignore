@@ -150,11 +150,13 @@ JAVADOC-GENERATED
 /erts/epmd/test/Emakefile
 
 /lib/*/SKIP
+/lib/SKIP-APPLICATIONS
 
 /lib/*/doc/html/*.html
 /lib/*/doc/html/*.css
 /lib/*/doc/html/js
 /lib/*/doc/html/*.gif
+/lib/*/doc/html/*.jpg
 /lib/*/doc/html/*.png
 /lib/*/doc/html/*.eix
 /lib/*/doc/man[0-9]/*.[0-9]
@@ -212,7 +214,7 @@ JAVADOC-GENERATED
 
 # debugger
 
-/lib/debugger/doc/html/images/*.gif
+/lib/debugger/doc/html/images/*.jpg
 
 # edoc
 
@@ -224,6 +226,7 @@ JAVADOC-GENERATED
 /erts/info
 /erts/doc/html/*.html
 /erts/doc/html/*.gif
+/erts/doc/html/*.jpg
 /erts/doc/html/*.eix
 /erts/doc/pdf/*.fo
 /erts/doc/pdf/*.pdf
@@ -285,13 +288,13 @@ JAVADOC-GENERATED
 
 # otp_mibs
 
-/lib/otp_mibs/include/[A-Z]*.hrl
+/lib/otp_mibs/include/OTP*.hrl
 /lib/otp_mibs/mibs/v1/OTP*.mib.v1
 /lib/otp_mibs/priv/mibs/OTP*.bin
 
 # os_mon
 
-/lib/os_mon/include/[A-Z]*.hrl
+/lib/os_mon/include/OTP*.hrl
 /lib/os_mon/mibs/v1/OTP*.mib.v1
 /lib/os_mon/priv/mibs/OTP*.bin
 
@@ -329,6 +332,7 @@ JAVADOC-GENERATED
 /system/doc/html/js
 /system/doc/html/*/*.html
 /system/doc/html/*/*.gif
+/system/doc/html/*/*.jpg
 /system/doc/html/*/*.eix
 /system/doc/top/PR.template
 /system/doc/top/erlresolvelinks.js

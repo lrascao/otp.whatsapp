@@ -255,16 +255,7 @@ compile_directory(Dir, Options) when is_list(Dir), is_list(Options) ->
     end.
 
 compile_modules(Files,Options) ->
-    Options2 = lists:filter(fun(Option) ->
-				    case Option of
-					{i, Dir} when is_list(Dir) -> true;
-					{d, _Macro} -> true;
-					{d, _Macro, _Value} -> true;
-					export_all -> true;
-					_ -> false
-				    end
-			    end,
-			    Options),
+    Options2 = filter_options(Options),
     compile_modules(Files,Options2,[]).
 
 compile_modules([File|Files], Options, Result) ->
@@ -273,6 +264,17 @@ compile_modules([File|Files], Options, Result) ->
 compile_modules([],_Opts,Result) ->
     reverse(Result).
 
+filter_options(Options) ->
+    lists:filter(fun(Option) ->
+                         case Option of
+                             {i, Dir} when is_list(Dir) -> true;
+                             {d, _Macro} -> true;
+                             {d, _Macro, _Value} -> true;
+                             export_all -> true;
+                             _ -> false
+                         end
+                 end,
+                 Options).
 
 %% compile_beam(ModFile) -> Result | {error,Reason}
 %%   ModFile - see compile/1
@@ -622,8 +624,9 @@ main_process_loop(State) ->
 	    Compiled0 = State#main_state.compiled,
 	    case get_beam_file(Module,BeamFile0,Compiled0) of
 		{ok,BeamFile} ->
+		    UserOptions = get_compile_options(Module,BeamFile),
 		    {Reply,Compiled} = 
-			case do_compile_beam(Module,BeamFile,[]) of
+			case do_compile_beam(Module,BeamFile,UserOptions) of
 			    {ok, Module} ->
 				remote_load_compiled(State#main_state.nodes,
 						     [{Module,BeamFile}]),
@@ -721,6 +724,11 @@ main_process_loop(State) ->
 	      end,
 	      State#main_state.nodes),
 	    reload_originals(State#main_state.compiled),
+            ets:delete(?COVER_TABLE),
+            ets:delete(?COVER_CLAUSE_TABLE),
+            ets:delete(?BINARY_TABLE),
+            ets:delete(?COLLECTION_TABLE),
+            ets:delete(?COLLECTION_CLAUSE_TABLE),
             unregister(?SERVER),
 	    reply(From, ok);
 
@@ -876,6 +884,8 @@ remote_process_loop(State) ->
 
 	{remote,stop} ->
 	    reload_originals(State#remote_state.compiled),
+	    ets:delete(?COVER_TABLE),
+            ets:delete(?COVER_CLAUSE_TABLE),
             unregister(?SERVER),
 	    ok; % not replying since 'DOWN' message will be received anyway
 
@@ -1139,9 +1149,14 @@ remote_collect(Module,Nodes,Stop) ->
 
 do_collection(Node, Module, Stop) ->
     CollectorPid = spawn(fun collector_proc/0),
-    remote_call(Node,{remote,collect,Module,CollectorPid, self()}),
-    if Stop -> remote_call(Node,{remote,stop});
-       true -> ok
+    case remote_call(Node,{remote,collect,Module,CollectorPid, self()}) of
+	{error,node_dead} ->
+	    CollectorPid ! done,
+	    ok;
+	ok when Stop ->
+	    remote_call(Node,{remote,stop});
+	ok ->
+	    ok
     end.
 
 %% Process which receives chunks of data from remote nodes - either when
@@ -1409,12 +1424,23 @@ get_abstract_code(Module, Beam) ->
     end.
 
 get_source_info(Module, Beam) ->
+    Compile = get_compile_info(Module, Beam),
+    case lists:keyfind(source, 1, Compile) of
+        { source, _ } = Tuple -> [Tuple];
+        false -> []
+    end.
+
+get_compile_options(Module, Beam) ->
+    Compile = get_compile_info(Module, Beam),
+    case lists:keyfind(options, 1, Compile) of
+        {options, Options } -> filter_options(Options);
+        false -> []
+    end.
+
+get_compile_info(Module, Beam) ->
     case beam_lib:chunks(Beam, [compile_info]) of
 	{ok, {Module, [{compile_info, Compile}]}} ->
-		case lists:keyfind(source, 1, Compile) of
-			{ source, _ } = Tuple -> [Tuple];
-			false -> []
-		end;
+		Compile;
 	_ ->
 		[]
     end.
@@ -1951,47 +1977,61 @@ move_clauses([{M,F,A,C,_L}|Clauses]) ->
     move_clauses(Clauses);
 move_clauses([]) ->
     ok.
-			  
 
 %% Given a .beam file, find the .erl file. Look first in same directory as
-%% the .beam file, then in <beamdir>/../src
+%% the .beam file, then in ../src, then in compile info.
 find_source(Module, File0) ->
-    case filename:rootname(File0,".beam") of
-	File0 ->
-	    File0;
-	File ->
-	    InSameDir = File++".erl",
-	    case filelib:is_file(InSameDir) of
-		true -> 
-		    InSameDir;
-		false ->
-		    Dir = filename:dirname(File),
-		    Mod = filename:basename(File),
-		    InDotDotSrc = filename:join([Dir,"..","src",Mod++".erl"]),
-		    case filelib:is_file(InDotDotSrc) of
-			true ->
-			    InDotDotSrc;
-			false ->
-			    find_source_from_module(Module, File0)
-		    end
-	    end
+    try
+        Root = filename:rootname(File0, ".beam"),
+        Root == File0 andalso throw(File0),  %% not .beam
+        %% Look for .erl in pwd.
+        File = Root ++ ".erl",
+        throw_file(File),
+        %% Not in pwd: look in ../src.
+        BeamDir = filename:dirname(File),
+        Base = filename:basename(File),
+        throw_file(filename:join([BeamDir, "..", "src", Base])),
+        %% Not in ../src: look for source path in compile info, but
+        %% first look relative the beam directory.
+        Info = lists:keyfind(source, 1, Module:module_info(compile)),
+        false == Info andalso throw({beam, File0}),  %% stripped
+        {source, SrcFile} = Info,
+        throw_file(splice(BeamDir, SrcFile)),  %% below ../src
+        throw_file(SrcFile),                   %% or absolute
+        %% No success means that source is either not under ../src or
+        %% its relative path differs from that of compile info. (For
+        %% example, compiled under src/x but installed under src/y.)
+        %% An option to specify an arbitrary source path explicitly is
+        %% probably a better solution than either more heuristics or a
+        %% potentially slow filesystem search.
+        {beam, File0}
+    catch
+        Path -> Path
     end.
 
-%% In case we can't find the file from the given .beam,
-%% we try to get the information directly from the module source
-find_source_from_module(Module, File) ->
-    Compile = Module:module_info(compile),
-    case lists:keyfind(source, 1, Compile) of
-	{source, Path} ->
-	    case filelib:is_file(Path) of
-		true ->
-		    Path;
-		false ->
-		    {beam, File}
-	    end;
-	false ->
-		{beam, File}
-	end.
+throw_file(Path) ->
+    false /= Path andalso filelib:is_file(Path) andalso throw(Path).
+
+%% Splice the tail of a source path, starting from the last "src"
+%% component, onto the parent of a beam directory, or return false if
+%% no "src" component is found.
+%%
+%% Eg. splice("/path/to/app-1.0/ebin", "/compiled/path/to/app/src/x/y.erl")
+%%        --> "/path/to/app-1.0/ebin/../src/x/y.erl"
+%%
+%% This handles the case of source in subdirectories of ../src with
+%% beams that have moved since compilation.
+%%
+splice(BeamDir, SrcFile) ->
+    case lists:splitwith(fun(C) -> C /= "src" end, revsplit(SrcFile)) of
+        {T, [_|_]} ->  %% found src component
+            filename:join([BeamDir, "..", "src" | lists:reverse(T)]);
+        {_, []} ->     %% or not
+            false
+    end.
+
+revsplit(Path) ->
+    lists:reverse(filename:split(Path)).
 
 do_parallel_analysis(Module, Analysis, Level, Loaded, From, State) ->
     analyse_info(Module,State#main_state.imported),

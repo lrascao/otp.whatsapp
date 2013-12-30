@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -784,8 +784,10 @@ format_list(List) ->
 
 make_list([Last]) ->
     [format(Last), $]];
+make_list([Head|Tail]) when is_list(Tail) ->
+    [format(Head), $,|make_list(Tail)];
 make_list([Head|Tail]) ->
-    [format(Head), $,|make_list(Tail)].
+    [format(Head), $|, format(Tail), $]].
 
 map_printable_list([$\n|Cs]) ->
     [$\\, $n|map_printable_list(Cs)];

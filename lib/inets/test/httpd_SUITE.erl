@@ -222,6 +222,15 @@ init_per_group(ipv6 = _GroupName, Config) ->
 	_ ->
 	    {skip, "Host does not support IPv6"}
     end;
+init_per_group(essl, Config) ->
+    catch crypto:stop(),
+    case (catch crypto:start()) of
+	ok ->
+	    Config;
+	_ ->
+	    {skip, "Crypto not startable"}
+    end;
+
 init_per_group(_GroupName, Config) ->
     Config.
 
@@ -1919,7 +1928,7 @@ ticket_5865(Config) ->
 					       " HTTP/1.1\r\nHost:"
 					       ++Host++"\r\n\r\n", 
 					       [{statuscode, 200},
-						{no_last_modified,
+						{no_header,
 						 "last-modified"}]),
 	    ok;
 	{error, Reason} ->

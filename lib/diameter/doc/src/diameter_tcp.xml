@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="latin1" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd" [
+  <!ENTITY start '<seealso marker="#start-3">start/3</seealso>'>
   <!ENTITY gen_tcp_connect3
   '<seealso marker="kernel:gen_tcp#connect-3">gen_tcp:connect/3</seealso>'>
   <!ENTITY gen_tcp_listen2
@@ -81,7 +82,9 @@ before configuring TLS capability on diameter transports.</p>
 
 <func>
 <name>start({Type, Ref}, Svc, [Opt])
-         -> {ok, Pid, [LAddr]} | {error, Reason}</name>
+         -> {ok, Pid}
+          | {ok, Pid, [LAddr]}
+          | {error, Reason}</name>
 <fsummary>Start a transport process.</fsummary>
 <type>
 <v>Type = connect | accept</v>
@@ -93,10 +96,12 @@ before configuring TLS capability on diameter transports.</p>
 <v>Reason = term()</v>
 <v>OwnOpt = {raddr, &ip_address;}
           | {rport, integer()}
+          | {accept, Match}
           | {port, integer()}
           | {fragment_timer, infinity | 0..16#FFFFFFFF}</v>
 <v>SslOpt = {ssl_options, true | list()}</v>
 <v>TcpOpt = term()</v>
+<v>Match = &ip_address; | string() | [Match]</v>
 </type>
 <desc>
 
@@ -106,7 +111,18 @@ The start function required by &man_transport;.</p>
 <p>
 Options <c>raddr</c> and <c>rport</c> specify the remote address
 and port for a connecting transport and are not valid for a listening
-transport.
+transport.</p>
+
+<p>
+Option <c>accept</c> specifies remote addresses for a listening
+transport and is not valid for a connecting transport.
+If specified, a remote address that does not match one of the
+specified addresses causes the connection to be aborted.
+Multiple <c>accept</c> options can be specified.
+A string-valued <c>Match</c> that does not parse as an address is
+interpreted as a regular expression.</p>
+
+<p>
 Option <c>ssl_options</c> must be specified for a transport
 that should support TLS: a value of <c>true</c> results in a
 TLS handshake immediately upon connection establishment while
@@ -153,13 +169,14 @@ that will not be forthcoming, which will eventually cause the RFC 3539
 watchdog to take down the connection.</p>
 
 <p>
-If the <c>#diameter_service{}</c> record has more than one
-<c>Host-IP-Address</c> and option <c>ip</c> is unspecified then the
-first of the these addresses is used as the local address.</p>
-
-<p>
-The returned local address list has length one.</p>
-
+If an <c>ip</c> option is not specified then the first element of a
+non-empty <c>Host-IP-Address</c> list in <c>Svc</c> provides the local
+IP address.
+If neither is specified then the default address selected by &gen_tcp;
+is used.
+In all cases, the selected address is either returned from
+&start; or passed in a <c>connected</c> message over the transport
+interface.</p>
 </desc>
 </func>
 

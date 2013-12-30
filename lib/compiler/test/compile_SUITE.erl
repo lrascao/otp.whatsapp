@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -139,8 +139,8 @@ forms_2(Config) when is_list(Config) ->
 module_mismatch(Config) when is_list(Config) ->
     ?line DataDir = ?config(data_dir, Config),
     ?line File = filename:join(DataDir, "wrong_module_name.erl"),
-    ?line {error,[{"wrong_module_name.beam",
-		   [{compile,{module_name,arne,"wrong_module_name"}}]}],
+    {error,[{"wrong_module_name.beam",
+	     [{none,compile,{module_name,arne,"wrong_module_name"}}]}],
 	   []} = compile:file(File, [return]),
     ?line error = compile:file(File, [report]),
 
@@ -492,6 +492,16 @@ encrypted_abstr_1(Simple, Target) ->
     ?line {error,beam_lib,{key_missing_or_invalid,"simple.beam",abstract_code}} =
 	beam_lib:chunks("simple.beam", [abstract_code]),
     ?line ok = file:set_cwd(OldCwd),
+
+    %% Test key compatibility by reading a BEAM file produced before
+    %% the update to the new crypto functions.
+    install_crypto_key("an old key"),
+    KeyCompat = filename:join(filename:dirname(Simple),
+			      "key_compatibility"),
+    {ok,{key_compatibility,[Chunk]}} = beam_lib:chunks(KeyCompat,
+						       [abstract_code]),
+    {abstract_code,{raw_abstract_v1,_}} = Chunk,
+
     ok.
 
 

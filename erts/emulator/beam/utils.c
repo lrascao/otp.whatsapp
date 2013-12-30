@@ -185,15 +185,15 @@ erts_set_hole_marker(Eterm* ptr, Uint sz)
  * Helper function for the ESTACK macros defined in global.h.
  */
 void
-erl_grow_stack(Eterm** start, Eterm** sp, Eterm** end)
+erl_grow_stack(ErtsAlcType_t a_type, Eterm** start, Eterm** sp, Eterm** end)
 {
     Uint old_size = (*end - *start);
     Uint new_size = old_size * 2;
     Uint sp_offs = *sp - *start;
     if (new_size > 2 * DEF_ESTACK_SIZE) {
-	*start = erts_realloc(ERTS_ALC_T_ESTACK, (void *) *start, new_size*sizeof(Eterm));
+	*start = erts_realloc(a_type, (void *) *start, new_size*sizeof(Eterm));
     } else {
-	Eterm* new_ptr = erts_alloc(ERTS_ALC_T_ESTACK, new_size*sizeof(Eterm));
+	Eterm* new_ptr = erts_alloc(a_type, new_size*sizeof(Eterm));
 	sys_memcpy(new_ptr, *start, old_size*sizeof(Eterm));
 	*start = new_ptr;
     }
@@ -204,15 +204,15 @@ erl_grow_stack(Eterm** start, Eterm** sp, Eterm** end)
  * Helper function for the ESTACK macros defined in global.h.
  */
 void
-erl_grow_wstack(UWord** start, UWord** sp, UWord** end)
+erl_grow_wstack(ErtsAlcType_t a_type, UWord** start, UWord** sp, UWord** end)
 {
     Uint old_size = (*end - *start);
     Uint new_size = old_size * 2;
     Uint sp_offs = *sp - *start;
     if (new_size > 2 * DEF_ESTACK_SIZE) {
-	*start = erts_realloc(ERTS_ALC_T_ESTACK, (void *) *start, new_size*sizeof(UWord));
+	*start = erts_realloc(a_type, (void *) *start, new_size*sizeof(UWord));
     } else {
-	UWord* new_ptr = erts_alloc(ERTS_ALC_T_ESTACK, new_size*sizeof(UWord));
+	UWord* new_ptr = erts_alloc(a_type, new_size*sizeof(UWord));
 	sys_memcpy(new_ptr, *start, old_size*sizeof(UWord));
 	*start = new_ptr;
     }
@@ -576,8 +576,8 @@ erts_bld_2tup_list(Uint **hpp, Uint *szp,
 }
 
 Eterm
-erts_bld_atom_uint_2tup_list(Uint **hpp, Uint *szp,
-			     Sint length, Eterm atoms[], Uint uints[])
+erts_bld_atom_uword_2tup_list(Uint **hpp, Uint *szp,
+                              Sint length, Eterm atoms[], UWord uints[])
 {
     Sint i;
     Eterm res = THE_NON_VALUE;
@@ -1325,7 +1325,7 @@ make_hash2_init(Eterm term, Uint32 initval)
 	    {
 		FloatDef ff;
 		GET_DOUBLE(term, ff);
-#if defined(WORDS_BIGENDIAN)
+#if defined(WORDS_BIGENDIAN) || defined(DOUBLE_MIDDLE_ENDIAN)
 		UINT32_HASH_2(ff.fw[0], ff.fw[1], HCONST_12);
 #else
 		UINT32_HASH_2(ff.fw[1], ff.fw[0], HCONST_12);
@@ -2719,25 +2719,26 @@ tailrecur_ne:
 	case SMALL_FLOAT:
 	    GET_DOUBLE(bw, f2);
 	    if (f2.fd < MAX_LOSSLESS_FLOAT && f2.fd > MIN_LOSSLESS_FLOAT) {
-		// Float is within the no loss limit
+		/* Float is within the no loss limit */
 		f1.fd = signed_val(aw);
 		j = float_comp(f1.fd, f2.fd);
 #if ERTS_SIZEOF_ETERM == 8
 	    } else if (f2.fd > (double) (MAX_SMALL + 1)) {
-		// Float is a positive bignum, i.e. bigger
+		/* Float is a positive bignum, i.e. bigger */
 		j = -1;
 	    } else if (f2.fd < (double) (MIN_SMALL - 1)) {
-		// Float is a negative bignum, i.e. smaller
+		/* Float is a negative bignum, i.e. smaller */
 		j = 1;
-	    } else { // Float is a Sint but less precise
+	    } else {
+		/* Float is a Sint but less precise */
 		j = signed_val(aw) - (Sint) f2.fd;
 	    }
 #else
 	    } else {
-		// If float is positive it is bigger than small
+		/* If float is positive it is bigger than small */
 		j = (f2.fd > 0.0) ? -1 : 1;
 	    }
-#endif // ERTS_SIZEOF_ETERM == 8
+#endif /* ERTS_SIZEOF_ETERM == 8 */
 	    break;
         case FLOAT_BIG:
 	{
@@ -2749,18 +2750,18 @@ tailrecur_ne:
 	    GET_DOUBLE(bw, f2);
 	    if ((f2.fd < (double) (MAX_SMALL + 1))
 		    && (f2.fd > (double) (MIN_SMALL - 1))) {
-		// Float is a Sint
+		/* Float is a Sint */
 		j = big_sign(aw) ? -1 : 1;
 	    } else if (big_arity(aw) > BIG_ARITY_FLOAT_MAX
 		       || pow(2.0,(big_arity(aw)-1)*D_EXP) > fabs(f2.fd)) {
-		// If bignum size shows that it is bigger than the abs float
+		/* If bignum size shows that it is bigger than the abs float */
 		j = big_sign(aw) ? -1 : 1;
 	    } else if (big_arity(aw) < BIG_ARITY_FLOAT_MAX
 		       && (pow(2.0,(big_arity(aw))*D_EXP)-1.0) < fabs(f2.fd)) {
-		// If bignum size shows that it is smaller than the abs float
+		/* If bignum size shows that it is smaller than the abs float */
 		j = f2.fd < 0 ? 1 : -1;
 	    } else if (f2.fd < MAX_LOSSLESS_FLOAT && f2.fd > MIN_LOSSLESS_FLOAT) {
-		// Float is within the no loss limit
+		/* Float is within the no loss limit */
 		if (big_to_double(aw, &f1.fd) < 0) {
 		    j = big_sign(aw) ? -1 : 1;
 		} else {
@@ -2777,25 +2778,26 @@ tailrecur_ne:
 	case FLOAT_SMALL:
 	    GET_DOUBLE(aw, f1);
 	    if (f1.fd < MAX_LOSSLESS_FLOAT && f1.fd > MIN_LOSSLESS_FLOAT) {
-		// Float is within the no loss limit
+		/* Float is within the no loss limit */
 		f2.fd = signed_val(bw);
 		j = float_comp(f1.fd, f2.fd);
 #if ERTS_SIZEOF_ETERM == 8
 	    } else if (f1.fd > (double) (MAX_SMALL + 1)) {
-		// Float is a positive bignum, i.e. bigger
+		/* Float is a positive bignum, i.e. bigger */
 		j = 1;
 	    } else if (f1.fd < (double) (MIN_SMALL - 1)) {
-		// Float is a negative bignum, i.e. smaller
+		/* Float is a negative bignum, i.e. smaller */
 		j = -1;
-	    } else { // Float is a Sint but less precise it
+	    } else {
+		/* Float is a Sint but less precise it */
 		j = (Sint) f1.fd - signed_val(bw);
 	    }
 #else
 	    } else {
-		// If float is positive it is bigger than small
+		/* If float is positive it is bigger than small */
 		j = (f1.fd > 0.0) ? 1 : -1;
 	    }
-#endif // ERTS_SIZEOF_ETERM == 8
+#endif /* ERTS_SIZEOF_ETERM == 8 */
 	    break;
 	default:
 	    j = b_tag - a_tag;
@@ -2987,7 +2989,7 @@ char* Sint_to_buf(Sint n, struct Sint_buf *buf)
 */
 
 Eterm
-buf_to_intlist(Eterm** hpp, char *buf, size_t len, Eterm tail)
+buf_to_intlist(Eterm** hpp, const char *buf, size_t len, Eterm tail)
 {
     Eterm* hp = *hpp;
     size_t i = len;
@@ -3470,6 +3472,291 @@ erts_free_read_env(void *value)
 	erts_free(ERTS_ALC_T_TMP, value);
 }
 
+
+typedef struct {
+    size_t sz;
+    char *ptr;
+} ErtsEmuArg;
+
+typedef struct {
+    int argc;
+    ErtsEmuArg *arg;
+    size_t no_bytes;
+} ErtsEmuArgs;
+
+ErtsEmuArgs saved_emu_args = {0};
+
+void
+erts_save_emu_args(int argc, char **argv)
+{
+#ifdef DEBUG
+    char *end_ptr;
+#endif
+    char *ptr;
+    int i;
+    size_t arg_sz[100];
+    size_t size;
+
+    ASSERT(!saved_emu_args.argc);
+
+    size = sizeof(ErtsEmuArg)*argc;
+    for (i = 0; i < argc; i++) {
+	size_t sz = sys_strlen(argv[i]);
+	if (i < sizeof(arg_sz)/sizeof(arg_sz[0]))
+	    arg_sz[i] = sz;
+	size += sz+1;
+    } 
+    ptr = (char *) malloc(size);
+#ifdef DEBUG
+    end_ptr = ptr + size;
+#endif
+    saved_emu_args.arg = (ErtsEmuArg *) ptr;
+    ptr += sizeof(ErtsEmuArg)*argc;
+    saved_emu_args.argc = argc;
+    saved_emu_args.no_bytes = 0;
+    for (i = 0; i < argc; i++) {
+	size_t sz;
+	if (i < sizeof(arg_sz)/sizeof(arg_sz[0]))
+	    sz = arg_sz[i];
+	else
+	    sz = sys_strlen(argv[i]);
+	saved_emu_args.arg[i].ptr = ptr;
+	saved_emu_args.arg[i].sz = sz;
+	saved_emu_args.no_bytes += sz;
+	ptr += sz+1;
+	sys_strcpy(saved_emu_args.arg[i].ptr, argv[i]);
+    }
+    ASSERT(ptr == end_ptr);
+}
+
+Eterm
+erts_get_emu_args(Process *c_p)
+{
+#ifdef DEBUG
+    Eterm *end_hp;
+#endif
+    int i;
+    Uint hsz;
+    Eterm *hp, res;
+
+    hsz = saved_emu_args.no_bytes*2;
+    hsz += saved_emu_args.argc*2;
+
+    hp = HAlloc(c_p, hsz);
+#ifdef DEBUG
+    end_hp = hp + hsz;
+#endif
+    res = NIL;
+
+    for (i = saved_emu_args.argc-1; i >= 0; i--) {
+    Eterm arg = buf_to_intlist(&hp,
+				   saved_emu_args.arg[i].ptr,
+				   saved_emu_args.arg[i].sz,
+				   NIL);
+	res = CONS(hp, arg, res);
+	hp += 2;
+    }
+
+    ASSERT(hp == end_hp);
+
+    return res;
+}
+
+
+Eterm
+erts_get_ethread_info(Process *c_p)
+{
+    Uint sz, *szp;
+    Eterm res, *hp, **hpp, *end_hp = NULL;
+
+    sz = 0;
+    szp = &sz;
+    hpp = NULL;
+
+    while (1) {
+	Eterm tup, list, name;
+#if defined(ETHR_NATIVE_ATOMIC32_IMPL)	  \
+    || defined(ETHR_NATIVE_ATOMIC64_IMPL)	\
+    || defined(ETHR_NATIVE_DW_ATOMIC_IMPL)
+	char buf[1024];
+	int i;
+	char **str;
+#endif
+
+	res = NIL;
+
+#ifdef ETHR_X86_MEMBAR_H__
+
+	tup = erts_bld_tuple(hpp, szp, 2,
+			     erts_bld_string(hpp, szp, "sse2"),
+#ifdef ETHR_X86_RUNTIME_CONF_HAVE_SSE2__
+			     erts_bld_string(hpp, szp,
+					     (ETHR_X86_RUNTIME_CONF_HAVE_SSE2__
+					      ? "yes" : "no"))
+#else
+			     erts_bld_string(hpp, szp, "yes")
+#endif
+	    );
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+	tup = erts_bld_tuple(hpp, szp, 2,
+			     erts_bld_string(hpp, szp,
+					     "x86"
+#ifdef ARCH_64
+					     "_64"
+#endif
+					     " OOO"),
+			     erts_bld_string(hpp, szp,
+#ifdef ETHR_X86_OUT_OF_ORDER
+					     "yes"
+#else
+					     "no"
+#endif
+				 ));
+
+	res = erts_bld_cons(hpp, szp, tup, res);
+#endif
+
+#ifdef ETHR_SPARC_V9_MEMBAR_H__
+
+	tup = erts_bld_tuple(hpp, szp, 2,
+			     erts_bld_string(hpp, szp, "Sparc V9"),
+			     erts_bld_string(hpp, szp,
+#if defined(ETHR_SPARC_TSO)
+					     "TSO"
+#elif defined(ETHR_SPARC_PSO)
+					     "PSO"
+#elif defined(ETHR_SPARC_RMO)
+					     "RMO"
+#else
+					     "undefined"
+#endif
+				 ));
+
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+#endif
+
+#ifdef ETHR_PPC_MEMBAR_H__
+
+	tup = erts_bld_tuple(hpp, szp, 2,
+			     erts_bld_string(hpp, szp, "lwsync"),
+			     erts_bld_string(hpp, szp,
+#if defined(ETHR_PPC_HAVE_LWSYNC)
+					     "yes"
+#elif defined(ETHR_PPC_HAVE_NO_LWSYNC)
+					     "no"
+#elif defined(ETHR_PPC_RUNTIME_CONF_HAVE_LWSYNC__)
+					     ETHR_PPC_RUNTIME_CONF_HAVE_LWSYNC__ ? "yes" : "no"
+#else
+					     "undefined"
+#endif
+				 ));
+
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+#endif
+
+	tup = erts_bld_tuple(hpp, szp, 2,
+			     erts_bld_string(hpp, szp, "Native rw-spinlocks"),
+#ifdef ETHR_NATIVE_RWSPINLOCK_IMPL
+			     erts_bld_string(hpp, szp, ETHR_NATIVE_RWSPINLOCK_IMPL)
+#else
+			     erts_bld_string(hpp, szp, "no")
+#endif
+	    );
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+	tup = erts_bld_tuple(hpp, szp, 2,
+			     erts_bld_string(hpp, szp, "Native spinlocks"),
+#ifdef ETHR_NATIVE_SPINLOCK_IMPL
+			     erts_bld_string(hpp, szp, ETHR_NATIVE_SPINLOCK_IMPL)
+#else
+			     erts_bld_string(hpp, szp, "no")
+#endif
+	    );
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+
+	list = NIL;
+#ifdef ETHR_NATIVE_DW_ATOMIC_IMPL
+	if (ethr_have_native_dw_atomic()) {
+	    name = erts_bld_string(hpp, szp, ETHR_NATIVE_DW_ATOMIC_IMPL);
+	    str = ethr_native_dw_atomic_ops();
+	    for (i = 0; str[i]; i++) {
+		erts_snprintf(buf, sizeof(buf), "ethr_native_dw_atomic_%s()", str[i]);
+		list = erts_bld_cons(hpp, szp,
+				     erts_bld_string(hpp, szp, buf),
+				     list);
+	    }
+	    str = ethr_native_su_dw_atomic_ops();
+	    for (i = 0; str[i]; i++) {
+		erts_snprintf(buf, sizeof(buf), "ethr_native_su_dw_atomic_%s()", str[i]);
+		list = erts_bld_cons(hpp, szp,
+				     erts_bld_string(hpp, szp, buf),
+				     list);
+	    }
+	}
+	else 
+#endif
+	    name = erts_bld_string(hpp, szp, "no");
+
+	tup = erts_bld_tuple(hpp, szp, 3,
+			     erts_bld_string(hpp, szp, "Double word native atomics"),
+			     name,
+			     list);
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+	list = NIL;
+#ifdef ETHR_NATIVE_ATOMIC64_IMPL
+	name = erts_bld_string(hpp, szp, ETHR_NATIVE_ATOMIC64_IMPL);
+	str = ethr_native_atomic64_ops();
+	for (i = 0; str[i]; i++) {
+	    erts_snprintf(buf, sizeof(buf), "ethr_native_atomic64_%s()", str[i]);
+	    list = erts_bld_cons(hpp, szp,
+				 erts_bld_string(hpp, szp, buf),
+				 list);
+	}
+#else
+	name = erts_bld_string(hpp, szp, "no");
+#endif
+	tup = erts_bld_tuple(hpp, szp, 3,
+			     erts_bld_string(hpp, szp, "64-bit native atomics"),
+			     name,
+			     list);
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+	list = NIL;
+#ifdef ETHR_NATIVE_ATOMIC32_IMPL
+	name = erts_bld_string(hpp, szp, ETHR_NATIVE_ATOMIC32_IMPL);
+	str = ethr_native_atomic32_ops();
+	for (i = 0; str[i]; i++) {
+	    erts_snprintf(buf, sizeof(buf), "ethr_native_atomic32_%s()", str[i]);
+	    list = erts_bld_cons(hpp, szp,
+				erts_bld_string(hpp, szp, buf),
+				list);
+	}
+#else
+	name = erts_bld_string(hpp, szp, "no");
+#endif
+	tup = erts_bld_tuple(hpp, szp, 3,
+			     erts_bld_string(hpp, szp, "32-bit native atomics"),
+			     name,
+			     list);
+	res = erts_bld_cons(hpp, szp, tup, res);
+
+	if (hpp) {
+	    HRelease(c_p, end_hp, *hpp)
+	    return res;
+	}
+
+	hp = HAlloc(c_p, sz);
+	end_hp = hp + sz;
+	hpp = &hp;
+	szp = NULL;
+    }
+}
+
 /*
  * To be used to silence unused result warnings, but do not abuse it.
  */
@@ -3725,6 +4012,24 @@ erts_smp_ensure_later_interval_acqb(erts_interval_t *icp, Uint64 ic)
 #endif
 }
 
+
+/*
+ * A millisecond timestamp without time correction where there's no hrtime
+ * - for tracing on "long" things...
+ */
+Uint64 erts_timestamp_millis(void)
+{
+#ifdef HAVE_GETHRTIME
+    return (Uint64) (sys_gethrtime() / 1000000);
+#else
+    Uint64 res;
+    SysTimeval tv;
+    sys_gettimeofday(&tv);
+    res = (Uint64) tv.tv_sec*1000000;
+    res += (Uint64) tv.tv_usec;
+    return (res / 1000);
+#endif
+}
 
 #ifdef DEBUG
 /*

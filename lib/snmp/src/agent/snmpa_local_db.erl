@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -191,6 +191,12 @@ dets_open(DbDir, DbInitError, Opts) ->
 		    end
 	    end;
 	_ ->
+	    case DbInitError of
+		create_db_and_dir ->
+		    ok = filelib:ensure_dir(Filename);
+		_ ->
+		    ok
+	    end,
 	    case do_dets_open(Name, Filename, Opts) of
 		{ok, Dets} ->
 		    ?vdebug("dets open done",[]),
@@ -583,7 +589,7 @@ handle_cast({variable_inc, Name, Db, N}, State) ->
 	    {value, Val} -> Val;
 	    _ -> 0 
 	end,
-    insert(Db, Name, M+N rem 4294967296, State),
+    insert(Db, Name, (M+N) rem 4294967296, State),
     {noreply, State};
     
 handle_cast({verbosity,Verbosity}, State) ->

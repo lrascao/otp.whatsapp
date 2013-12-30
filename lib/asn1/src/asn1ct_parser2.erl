@@ -2,7 +2,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -23,6 +23,10 @@
 -export([parse/1]).
 -include("asn1_records.hrl").
 
+%% Only used internally within this module.
+-record(typereference, {pos,val}).
+-record(constraint,{c,e}).
+
 %% parse all types in module
 parse(Tokens) ->
     case catch parse_ModuleDefinition(Tokens) of
@@ -34,6 +38,7 @@ parse(Tokens) ->
 	    {error,{Reason,hd(Tokens)}};
 	{ModuleDefinition,Rest1} ->
 	    {Types,Rest2} = parse_AssignmentList(Rest1),
+	    clean_process_dictionary(),
 	    case Rest2 of
 		[{'END',_}|_Rest3] ->
 		    {ok,ModuleDefinition#module{typeorval = Types}};
@@ -43,6 +48,13 @@ parse(Tokens) ->
 			    hd(Rest2)}}
 	    end
     end.
+
+clean_process_dictionary() ->
+    Mod = erase(asn1_module),
+    _ = erase({Mod,imports}),
+    _ = erase(tagdefault),
+    _ = erase(extensiondefault),
+    ok.
 
 parse_ModuleDefinition([{typereference,L1,ModuleIdentifier}|Rest0]) ->
     put(asn1_module,ModuleIdentifier),
@@ -458,7 +470,8 @@ parse_BuiltinType([{'INSTANCE',_},{'OF',_}|Rest]) ->
     {DefinedObjectClass,Rest2} = parse_DefinedObjectClass(Rest),
     case Rest2 of
 	[{'(',_}|_] ->
-	    {Constraint,Rest3} = parse_Constraint(Rest2),
+	    {Constraint0,Rest3} = parse_Constraint(Rest2),
+	    Constraint = merge_constraints([Constraint0]),
 	    {#type{def={'INSTANCE OF',DefinedObjectClass,Constraint}},Rest3};
 	_ ->
 	    {#type{def={'INSTANCE OF',DefinedObjectClass,[]}},Rest2}

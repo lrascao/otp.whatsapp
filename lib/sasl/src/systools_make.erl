@@ -1135,10 +1135,10 @@ generate_script(Output, Release, Appls, Flags) ->
 	      load_appl_mods(Appls, Mandatory ++ Preloaded,
 			     PathFlag, Variables) ++
 	      [{path, create_path(Appls, PathFlag, Variables)}] ++
-	      create_kernel_procs(Appls) ++
-	      create_load_appls(Appls) ++
-	      create_start_appls(Appls) ++
-	      script_end()
+		  create_kernel_procs(Appls) ++
+		  create_load_appls(Appls) ++
+		  create_start_appls(Appls) ++
+		  script_end(lists:member(no_dot_erlang, Flags))
 	     },
 
     ScriptFile = Output ++ ".script",
@@ -1229,9 +1229,12 @@ create_load_appls([]) ->
 %%______________________________________________________________________
 %% The final part of the script.
 
-script_end() ->
+script_end(false) ->  %% Do not skip loading of $HOME/.erlang
     [{apply, {c, erlangrc, []}},
-     {progress, started}].
+     {progress, started}];
+script_end(true) ->   %% Ignore loading of $HOME/.erlang
+    [{progress, started}].
+
 
 %%-----------------------------------------------------------------
 %% Function: sort_appls(Appls) -> {ok, Appls'} | throw({error, Error})
@@ -1461,8 +1464,8 @@ mandatory_modules() ->
 
 preloaded() ->
     %% Sorted
-    [erl_prim_loader,erlang,erts_internal,init,otp_ring0,prim_file,prim_inet,
-     prim_zip,zlib]. 
+    [erl_prim_loader,erlang,erts_internal,init,otp_ring0,prim_eval,prim_file,
+     prim_inet,prim_zip,zlib].
 
 %%______________________________________________________________________
 %% Kernel processes; processes that are specially treated by the init
@@ -2055,6 +2058,9 @@ cas([no_warn_sasl | Args], X) ->
 %%% no_module_tests (kept for backwards compatibility, but ignored) ----
 cas([no_module_tests | Args], X) ->
     cas(Args, X);
+cas([no_dot_erlang | Args], X) ->
+    cas(Args, X);
+
 %%% ERROR --------------------------------------------------------------
 cas([Y | Args], X) ->
     cas(Args, X++[Y]).

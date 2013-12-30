@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -86,6 +86,8 @@
 -define(INET_REQ_ACCEPT,        26).
 -define(INET_REQ_LISTEN,        27).
 -define(INET_REQ_IGNOREFD,      28).
+-define(INET_REQ_GETLADDRS,     29).
+-define(INET_REQ_GETPADDRS,     30).
 
 %% TCP requests
 %%-define(TCP_REQ_ACCEPT,         40). MOVED
@@ -141,8 +143,9 @@
 -define(INET_LOPT_READ_PACKETS,  33).
 -define(INET_OPT_RAW,            34).
 -define(INET_LOPT_TCP_SEND_TIMEOUT_CLOSE, 35).
--define(INET_LOPT_TCP_MSGQ_HIWTRMRK,  36).
--define(INET_LOPT_TCP_MSGQ_LOWTRMRK,  37).
+-define(INET_LOPT_MSGQ_HIWTRMRK,  36).
+-define(INET_LOPT_MSGQ_LOWTRMRK,  37).
+-define(INET_LOPT_NETNS,          38).
 % Specific SCTP options: separate range:
 -define(SCTP_OPT_RTOINFO,	 	100).
 -define(SCTP_OPT_ASSOCINFO,	 	101).

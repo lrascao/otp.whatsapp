@@ -32,8 +32,7 @@
          start_link/4,
          %% connect_and_send/2,
          send/2, 
-         cancel/3,
-         stream/3, 
+         cancel/2,
          stream_next/1,
          info/1
         ]).
@@ -65,7 +64,7 @@
           options,                   % #options{}
           timers = #timers{},        % #timers{}
           profile_name,              % atom() - id of httpc_manager process.
-          once                       % send | undefined 
+          once = inactive            % inactive | once
          }).
 
 
@@ -118,8 +117,8 @@ send(Request, Pid) ->
 %% Description: Cancels a request. Intended to be called by the httpc
 %% manager process.
 %%--------------------------------------------------------------------
-cancel(RequestId, Pid, From) ->
-    cast({cancel, RequestId, From}, Pid).
+cancel(RequestId, Pid) ->
+    cast({cancel, RequestId}, Pid).
 
 
 %%--------------------------------------------------------------------
@@ -231,6 +230,8 @@ init([Parent, Request, Options, ProfileName]) ->
     ProxyOptions = handle_proxy_options(Request#request.scheme, Options),
     Address = handle_proxy(Request#request.address, ProxyOptions),
     {ok, State} =
+        %% #state.once should initially be 'inactive' because we
+        %% activate the socket at first regardless of the state.
         case {Address /= Request#request.address, Request#request.scheme} of
             {true, https} ->
                 connect_and_send_upgrade_request(Address, Request,
@@ -399,19 +400,17 @@ handle_call(info, _, State) ->
 %% handle_keep_alive_queue/2 on the other hand will just skip the
 %% request as if it was never issued as in this case the request will
 %% not have been sent. 
-handle_cast({cancel, RequestId, From},
+handle_cast({cancel, RequestId},
             #state{request      = #request{id = RequestId} = Request,
                    profile_name = ProfileName,
                    canceled     = Canceled} = State) ->
     ?hcrv("cancel current request", [{request_id, RequestId}, 
                                      {profile,    ProfileName},
                                      {canceled,   Canceled}]),
-    httpc_manager:request_canceled(RequestId, ProfileName, From),
-    ?hcrv("canceled", []),
     {stop, normal, 
      State#state{canceled = [RequestId | Canceled],
                  request  = Request#request{from = answer_sent}}};
-handle_cast({cancel, RequestId, From},
+handle_cast({cancel, RequestId},
             #state{profile_name = ProfileName,
                    request      = #request{id = CurrId},
                    canceled     = Canceled} = State) ->
@@ -419,13 +418,13 @@ handle_cast({cancel, RequestId, From},
                      {curr_req_id, CurrId},
                      {profile, ProfileName},
                      {canceled,   Canceled}]),
-    httpc_manager:request_canceled(RequestId, ProfileName, From),
-    ?hcrv("canceled", []),
     {noreply, State#state{canceled = [RequestId | Canceled]}};
 
 handle_cast(stream_next, #state{session = Session} = State) ->
     activate_once(Session), 
-    {noreply, State#state{once = once}}.
+    %% Inactivate the #state.once here because we don't want
+    %% next_body_chunk/1 to activate the socket twice.
+    {noreply, State#state{once = inactive}}.
 
 
 %%--------------------------------------------------------------------
@@ -478,24 +477,52 @@ handle_info({Proto, _Socket, Data},
                 NewMFA   = {Module, whole_body, [NewBody, NewLength]}, 
                 {noreply, NewState#state{mfa     = NewMFA,
                                          request = NewRequest}};
+            {Module, decode_size,
+             [TotalChunk, HexList,
+              {MaxBodySize, BodySoFar, AccLength, MaxHeaderSize}]}
+              when BodySoFar =/= <<>> ->
+                ?hcrd("data processed - decode_size", []),
+                %% The response body is chunk-encoded. Steal decoded
+                %% chunks as much as possible to stream.
+                {_, Code, _} = StatusLine,
+                {NewBody, NewRequest} = stream(BodySoFar, Request, Code),
+                NewState = next_body_chunk(State),
+                NewMFA   = {Module, decode_size,
+                            [TotalChunk, HexList,
+                             {MaxBodySize, NewBody, AccLength, MaxHeaderSize}]},
+                {noreply, NewState#state{mfa     = NewMFA,
+                                         request = NewRequest}};
+            {Module, decode_data,
+             [ChunkSize, TotalChunk,
+              {MaxBodySize, BodySoFar, AccLength, MaxHeaderSize}]}
+              when TotalChunk =/= <<>> orelse BodySoFar =/= <<>> ->
+                ?hcrd("data processed - decode_data", []),
+                %% The response body is chunk-encoded. Steal decoded
+                %% chunks as much as possible to stream.
+                ChunkSizeToSteal = min(ChunkSize, byte_size(TotalChunk)),
+                <<StolenChunk:ChunkSizeToSteal/binary, NewTotalChunk/binary>> = TotalChunk,
+                StolenBody   = <<BodySoFar/binary, StolenChunk/binary>>,
+                NewChunkSize = ChunkSize - ChunkSizeToSteal,
+                {_, Code, _} = StatusLine,
+
+                {NewBody, NewRequest} = stream(StolenBody, Request, Code),
+                NewState = next_body_chunk(State),
+                NewMFA   = {Module, decode_data,
+                            [NewChunkSize, NewTotalChunk,
+                             {MaxBodySize, NewBody, AccLength, MaxHeaderSize}]},
+                {noreply, NewState#state{mfa     = NewMFA,
+                                         request = NewRequest}};
             NewMFA ->
                 ?hcrd("data processed - new mfa", []),
                 activate_once(Session),
                 {noreply, State#state{mfa = NewMFA}}
         catch
-            exit:_Exit ->
-                ?hcrd("data processing exit", [{exit, _Exit}]),
+            _:_Reason ->
+                ?hcrd("data processing exit", [{exit, _Reason}]),
                 ClientReason = {could_not_parse_as_http, Data}, 
                 ClientErrMsg = httpc_response:error(Request, ClientReason),
                 NewState     = answer_request(Request, ClientErrMsg, State),
-                {stop, normal, NewState};
-            error:_Error ->    
-                ?hcrd("data processing error", [{error, _Error}]),
-                ClientReason = {could_not_parse_as_http, Data}, 
-                ClientErrMsg = httpc_response:error(Request, ClientReason),
-                NewState     = answer_request(Request, ClientErrMsg, State),   
                 {stop, normal, NewState}
-        
         end,
     ?hcri("data processed", [{final_result, FinalResult}]),
     FinalResult;
@@ -1027,11 +1054,15 @@ handle_http_msg({Version, StatusCode, ReasonPharse, Headers, Body},
 					 status_line = StatusLine, 
 					 headers     = Headers})
     end;
-handle_http_msg({ChunkedHeaders, Body}, #state{headers = Headers} = State) ->
+handle_http_msg({ChunkedHeaders, Body},
+                #state{status_line = {_, Code, _}, headers = Headers} = State) ->
     ?hcrt("handle_http_msg", 
 	  [{chunked_headers, ChunkedHeaders}, {headers, Headers}]),
     NewHeaders = http_chunk:handle_headers(Headers, ChunkedHeaders),
-    handle_response(State#state{headers = NewHeaders, body = Body});
+    {NewBody, NewRequest} = stream(Body, State#state.request, Code),
+    handle_response(State#state{headers = NewHeaders,
+                                body    = NewBody,
+                                request = NewRequest});
 handle_http_msg(Body, #state{status_line = {_,Code, _}} = State) ->
     ?hcrt("handle_http_msg", [{code, Code}]),
     {NewBody, NewRequest} = stream(Body, State#state.request, Code),
@@ -1070,8 +1101,7 @@ handle_http_body(Body, #state{headers       = Headers,
         "chunked" ->
 	    ?hcrt("handle_http_body - chunked", []),
 	    case http_chunk:decode(Body, State#state.max_body_size, 
-				   State#state.max_header_size, 
-				   {Code, Request}) of
+				   State#state.max_header_size) of
 		{Module, Function, Args} ->
 		    ?hcrt("handle_http_body - new mfa", 
 			  [{module,   Module}, 
@@ -1124,7 +1154,7 @@ handle_http_body(Body, #state{headers       = Headers,
 
 handle_response(#state{status = new} = State) ->
     ?hcrd("handle response - status = new", []),
-    handle_response(try_to_enable_pipeline_or_keep_alive(State));
+    handle_response(check_persistent(State));
 
 handle_response(#state{request      = Request,
 		       status       = Status,
@@ -1142,7 +1172,7 @@ handle_response(#state{request      = Request,
 			      {session,     Session}, 
 			      {status_line, StatusLine}]),
 
-    handle_cookies(Headers, Request, Options, httpc_manager), %% FOO profile_name
+    handle_cookies(Headers, Request, Options, ProfileName), 
     case httpc_response:result({StatusLine, Headers, Body}, Request) of
 	%% 100-continue
 	continue -> 
@@ -1399,39 +1429,22 @@ is_keep_alive_enabled_server(_,_) ->
 is_keep_alive_connection(Headers, #session{client_close = ClientClose}) ->
     (not ((ClientClose) orelse httpc_response:is_server_closing(Headers))).
 
-try_to_enable_pipeline_or_keep_alive(
-  #state{session      = Session, 
-	 request      = #request{method = Method},
+check_persistent(
+  #state{session      = #session{type = Type} = Session, 
 	 status_line  = {Version, _, _},
 	 headers      = Headers,
-	 profile_name = ProfileName} = State) ->
-    ?hcrd("try to enable pipeline or keep-alive", 
-	  [{version, Version}, 
-	   {headers, Headers}, 
-	   {session, Session}]),
+	 profile_name = ProfileName} = State) ->    
     case is_keep_alive_enabled_server(Version, Headers) andalso 
-	  is_keep_alive_connection(Headers, Session) of
+	is_keep_alive_connection(Headers, Session) of
 	true ->
-	    case (is_pipeline_enabled_client(Session) andalso 
-		  httpc_request:is_idempotent(Method)) of
-		true ->
-		    insert_session(Session, ProfileName),
-		    State#state{status = pipeline};
-		false ->
-		    insert_session(Session, ProfileName),
-		    %% Make sure type is keep_alive in session
-		    %% as it in this case might be pipeline
-		    NewSession = Session#session{type = keep_alive}, 
-		    State#state{status  = keep_alive,
-				session = NewSession}
-	    end;
+	    mark_persistent(ProfileName, Session),
+	    State#state{status = Type};
 	false ->
 	    State#state{status = close}
     end.
 
 answer_request(#request{id = RequestId, from = From} = Request, Msg, 
-	       #state{session      = Session, 
-		      timers       = Timers, 
+	       #state{timers       = Timers, 
 		      profile_name = ProfileName} = State) -> 
     ?hcrt("answer request", [{request, Request}, {msg, Msg}]),
     httpc_response:send(From, Msg),
@@ -1441,19 +1454,14 @@ answer_request(#request{id = RequestId, from = From} = Request, Msg,
     Timer = {RequestId, TimerRef},
     cancel_timer(TimerRef, {timeout, Request#request.id}),
     httpc_manager:request_done(RequestId, ProfileName),
-    NewSession = maybe_make_session_available(ProfileName, Session), 
     Timers2 = Timers#timers{request_timers = lists:delete(Timer, 
 							  RequestTimers)}, 
     State#state{request = Request#request{from = answer_sent},
-		session = NewSession, 
 		timers  = Timers2}.
 
-maybe_make_session_available(ProfileName, 
-			     #session{available = false} = Session) ->
-    update_session(ProfileName, Session, #session.available, true),
-    Session#session{available = true};
-maybe_make_session_available(_ProfileName, Session) ->
-    Session.
+mark_persistent(ProfileName, Session) ->
+    update_session(ProfileName, Session, #session.persistent, true),
+    Session#session{persistent = true}.
     
 cancel_timers(#timers{request_timers = ReqTmrs, queue_timer = QTmr}) ->
     cancel_timer(QTmr, timeout_queue),

@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2013. All Rights Reserved.
  * 
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -339,7 +339,7 @@ int main(int argc, char **argv)
     tty_smode.c_cc[VTIME]     =0;/* Note that VTIME is the same as VEOL! */
     tty_smode.c_cc[VINTR]     =3;
     
-    tcsetattr(0, TCSANOW, &tty_smode);
+    tcsetattr(0, TCSADRAIN, &tty_smode);
     
 #ifdef DEBUG
     show_terminal_settings(&tty_smode);
@@ -353,7 +353,7 @@ int main(int argc, char **argv)
      * at the start of every new to_erl-session.
      */
 
-    if (write(wfd, "\022", 1) < 0) {
+    if (write(wfd, "\014", 1) < 0) {
 	fprintf(stderr, "Error in writing ^R to FIFO.\n");
     }
 
@@ -484,7 +484,7 @@ int main(int argc, char **argv)
      * Reset terminal characterstics 
      * XXX
      */
-    tcsetattr(0, TCSANOW, &tty_rmode);
+    tcsetattr(0, TCSADRAIN, &tty_rmode);
     return 0;
 }
 

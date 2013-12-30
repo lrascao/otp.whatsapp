@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -124,7 +124,7 @@
     {noreply, NewState :: term()} |
     {noreply, NewState :: term(), timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: term()}.
--callback handle_info(Info :: timeout() | term(), State :: term()) ->
+-callback handle_info(Info :: timeout | term(), State :: term()) ->
     {noreply, NewState :: term()} |
     {noreply, NewState :: term(), timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: term()}.
@@ -217,7 +217,7 @@ reply({To, Tag}, Reply) ->
     catch To ! {Tag, Reply}.
 
 %% ----------------------------------------------------------------- 
-%% Asyncronous broadcast, returns nothing, it's just send'n prey
+%% Asynchronous broadcast, returns nothing, it's just send 'n' pray
 %%-----------------------------------------------------------------  
 abcast(Name, Request) when is_atom(Name) ->
     do_abcast([node() | nodes()], Name, cast_msg(Request)).
@@ -372,6 +372,13 @@ wake_hib(Parent, Name, State, Mod, Debug) ->
 
 decode_msg(Msg, Parent, Name, State, Mod, Time, Debug, Hib) ->
     case Msg of
+	{system, From, get_state} ->
+	    sys:handle_system_msg(get_state, From, Parent, ?MODULE, Debug,
+				  {State, [Name, State, Mod, Time]}, Hib);
+	{system, From, {replace_state, StateFun}} ->
+	    NState = try StateFun(State) catch _:_ -> State end,
+	    sys:handle_system_msg(replace_state, From, Parent, ?MODULE, Debug,
+				  {NState, [Name, NState, Mod, Time]}, Hib);
 	{system, From, Req} ->
 	    sys:handle_system_msg(Req, From, Parent, ?MODULE, Debug,
 				  [Name, State, Mod, Time], Hib);
@@ -386,7 +393,7 @@ decode_msg(Msg, Parent, Name, State, Mod, Time, Debug, Hib) ->
     end.
 
 %%% ---------------------------------------------------
-%%% Send/recive functions
+%%% Send/receive functions
 %%% ---------------------------------------------------
 do_send(Dest, Msg) ->
     case catch erlang:send(Dest, Msg, [noconnect]) of
@@ -465,11 +472,11 @@ rec_nodes(Tag, [{N,R}|Tail], Name, Badnodes, Replies, Time, TimerId ) ->
 	{'DOWN', R, _, _, _} ->
 	    rec_nodes(Tag, Tail, Name, [N|Badnodes], Replies, Time, TimerId);
 	{{Tag, N}, Reply} ->  %% Tag is bound !!!
-	    unmonitor(R), 
+	    erlang:demonitor(R, [flush]),
 	    rec_nodes(Tag, Tail, Name, Badnodes, 
 		      [{N,Reply}|Replies], Time, TimerId);
 	{timeout, TimerId, _} ->	
-	    unmonitor(R),
+	    erlang:demonitor(R, [flush]),
 	    %% Collect all replies that already have arrived
 	    rec_nodes_rest(Tag, Tail, Name, [N|Badnodes], Replies)
     end;
@@ -520,10 +527,10 @@ rec_nodes_rest(Tag, [{N,R}|Tail], Name, Badnodes, Replies) ->
 	{'DOWN', R, _, _, _} ->
 	    rec_nodes_rest(Tag, Tail, Name, [N|Badnodes], Replies);
 	{{Tag, N}, Reply} -> %% Tag is bound !!!
-	    unmonitor(R),
+	    erlang:demonitor(R, [flush]),
 	    rec_nodes_rest(Tag, Tail, Name, Badnodes, [{N,Reply}|Replies])
     after 0 ->
-	    unmonitor(R),
+	    erlang:demonitor(R, [flush]),
 	    rec_nodes_rest(Tag, Tail, Name, [N|Badnodes], Replies)
     end;
 rec_nodes_rest(Tag, [N|Tail], Name, Badnodes, Replies) ->
@@ -563,16 +570,6 @@ start_monitor(Node, Name) when is_atom(Node), is_atom(Name) ->
 		Ref when is_reference(Ref) ->
 		    {Node, Ref}
 	    end
-    end.
-
-%% Cancels a monitor started with Ref=erlang:monitor(_, _).
-unmonitor(Ref) when is_reference(Ref) ->
-    erlang:demonitor(Ref),
-    receive
-	{'DOWN', Ref, _, _, _} ->
-	    true
-    after 0 ->
-	    true
     end.
 
 %%% ---------------------------------------------------

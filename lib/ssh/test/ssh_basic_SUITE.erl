@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -22,6 +22,7 @@
 -module(ssh_basic_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("kernel/include/inet.hrl").
 
 %% Note: This directive should only be used in test suites.
 -compile(export_all).
@@ -45,15 +46,21 @@ all() ->
      daemon_already_started,
      server_password_option,
      server_userpassword_option,
-     close].
+     double_close].
 
 groups() -> 
-    [{dsa_key, [], [send, exec, exec_compressed, shell, known_hosts, idle_time, rekey]},
-     {rsa_key, [], [send, exec, exec_compressed, shell, known_hosts, idle_time, rekey]},
+    [{dsa_key, [], basic_tests()},
+     {rsa_key, [], basic_tests()},
      {dsa_pass_key, [], [pass_phrase]},
      {rsa_pass_key, [], [pass_phrase]},
      {internal_error, [], [internal_error]}
     ].
+
+basic_tests() ->
+    [send, close, peername_sockname,
+     exec, exec_compressed, shell, cli, known_hosts, 
+     idle_time, rekey, openssh_zlib_basic_test].
+
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
     case catch crypto:start() of
@@ -137,16 +144,16 @@ end_per_testcase(_Config) ->
 %%--------------------------------------------------------------------
 %% Test Cases --------------------------------------------------------
 %%--------------------------------------------------------------------
-app_test(doc) ->
-    ["Application consistency test."];
+app_test() ->
+    [{doc, "App lication consistency test."}].
 app_test(Config) when is_list(Config) ->
     ?t:app_test(ssh),
     ok.
 %%--------------------------------------------------------------------
-misc_ssh_options(doc) ->
-    ["Test that we can set some misc options not tested elsewhere, "
-     "some options not yet present are not decided if we should support or "
-     "if they need thier own test case."];
+misc_ssh_options() ->
+    [{doc, "Test that we can set some misc options not tested elsewhere, "
+      "some options not yet present are not decided if we should support or "
+      "if they need thier own test case."}].
 misc_ssh_options(Config) when is_list(Config) ->  
     SystemDir = filename:join(?config(priv_dir, Config), system),
     UserDir = ?config(priv_dir, Config),
@@ -163,8 +170,8 @@ misc_ssh_options(Config) when is_list(Config) ->
     basic_test([{client_opts, CMiscOpt1 ++ ClientOpts}, {server_opts, SMiscOpt1 ++ ServerOpts}]).
 
 %%--------------------------------------------------------------------
-exec(doc) ->
-    ["Test api function ssh_connection:exec"];
+exec() ->
+    [{doc, "Test api function ssh_connection:exec"}].
 exec(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     SystemDir = filename:join(?config(priv_dir, Config), system),
@@ -205,8 +212,8 @@ exec(Config) when is_list(Config) ->
     ssh:stop_daemon(Pid).
 
 %%--------------------------------------------------------------------
-exec_compressed(doc) ->
-    ["Test that compression option works"];
+exec_compressed() ->
+    [{doc, "Test that compression option works"}].
 exec_compressed(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     SystemDir = filename:join(?config(priv_dir, Config), system),
@@ -234,8 +241,8 @@ exec_compressed(Config) when is_list(Config) ->
     ssh:stop_daemon(Pid).
 
 %%--------------------------------------------------------------------
-idle_time(doc) ->
-    ["Idle timeout test"];
+idle_time() ->
+    [{doc, "Idle timeout test"}].
 idle_time(Config) ->
     SystemDir = filename:join(?config(priv_dir, Config), system),
     UserDir = ?config(priv_dir, Config),
@@ -252,12 +259,12 @@ idle_time(Config) ->
     ssh_connection:close(ConnectionRef, Id),
     receive
     after 10000 ->
-	    {error,channel_closed} = ssh_connection:session_channel(ConnectionRef, 1000)
+	    {error, closed} = ssh_connection:session_channel(ConnectionRef, 1000)
     end,
     ssh:stop_daemon(Pid).
 %%--------------------------------------------------------------------
-rekey(doc) ->
-    ["Idle timeout test"];
+rekey() ->
+    [{doc, "Idle timeout test"}].
 rekey(Config) ->
     SystemDir = filename:join(?config(priv_dir, Config), system),
     UserDir = ?config(priv_dir, Config),
@@ -272,14 +279,14 @@ rekey(Config) ->
 					  {user_interaction, false},
 					  {rekey_limit, 0}]),
     receive
-    after 15000 ->
+    after 200000 ->
 	    %%By this time rekeying would have been done
 	    ssh:close(ConnectionRef),
 	    ssh:stop_daemon(Pid)
     end.
 %%--------------------------------------------------------------------
-shell(doc) ->
-    ["Test that ssh:shell/2 works"];
+shell() ->
+    [{doc, "Test that ssh:shell/2 works"}].
 shell(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     SystemDir = filename:join(?config(priv_dir, Config), system),
@@ -300,9 +307,44 @@ shell(Config) when is_list(Config) ->
     end.
     
 %%--------------------------------------------------------------------
-daemon_already_started(doc) ->
-    ["Test that get correct error message if you try to start a daemon",
-    "on an adress that already runs a daemon see also seq10667" ];
+cli() ->
+    [{doc, ""}].
+cli(Config) when is_list(Config) ->
+    process_flag(trap_exit, true),
+    SystemDir = filename:join(?config(priv_dir, Config), system),
+    UserDir = ?config(priv_dir, Config),
+   
+    {_Pid, Host, Port} = ssh_test_lib:daemon([{system_dir, SystemDir},{user_dir, UserDir},
+					       {password, "morot"},
+					       {ssh_cli, {ssh_test_cli, [cli]}}, 
+					       {subsystems, []},
+					       {failfun, fun ssh_test_lib:failfun/2}]),
+    ct:sleep(500),
+    
+    ConnectionRef = ssh_test_lib:connect(Host, Port, [{silently_accept_hosts, true},
+						      {user, "foo"},
+						      {password, "morot"},
+						      {user_interaction, false},
+						      {user_dir, UserDir}]),
+    
+    {ok, ChannelId} = ssh_connection:session_channel(ConnectionRef, infinity),
+    ssh_connection:shell(ConnectionRef, ChannelId),
+    ok = ssh_connection:send(ConnectionRef, ChannelId, <<"q">>),
+    receive 
+	{ssh_cm, ConnectionRef,
+	 {data,0,0, <<"\r\nYou are accessing a dummy, type \"q\" to exit\r\n\n">>}} ->
+	    ok = ssh_connection:send(ConnectionRef, ChannelId, <<"q">>)
+    end,
+    
+    receive 
+     	{ssh_cm, ConnectionRef,{closed, ChannelId}} ->
+     	    ok
+    end.
+
+%%--------------------------------------------------------------------
+daemon_already_started() ->
+    [{doc, "Test that get correct error message if you try to start a daemon",
+      "on an adress that already runs a daemon see also seq10667"}].
 daemon_already_started(Config) when is_list(Config) ->
     SystemDir = ?config(data_dir, Config),
     UserDir = ?config(priv_dir, Config),
@@ -317,8 +359,8 @@ daemon_already_started(Config) when is_list(Config) ->
     ssh:stop_daemon(Pid).
 
 %%--------------------------------------------------------------------
-server_password_option(doc) ->
-    ["validate to server that uses the 'password' option"];
+server_password_option() ->
+    [{doc, "validate to server that uses the 'password' option"}].
 server_password_option(Config) when is_list(Config) ->
     PrivDir = ?config(priv_dir, Config),
     UserDir = filename:join(PrivDir, nopubkey), % to make sure we don't use public-key-auth
@@ -351,8 +393,8 @@ server_password_option(Config) when is_list(Config) ->
 
 %%--------------------------------------------------------------------
 
-server_userpassword_option(doc) ->
-    ["validate to server that uses the 'password' option"];
+server_userpassword_option() ->
+    [{doc, "validate to server that uses the 'password' option"}].
 server_userpassword_option(Config) when is_list(Config) ->
     PrivDir = ?config(priv_dir, Config),
     UserDir = filename:join(PrivDir, nopubkey), % to make sure we don't use public-key-auth
@@ -387,8 +429,8 @@ server_userpassword_option(Config) when is_list(Config) ->
     ssh:stop_daemon(Pid).
 
 %%--------------------------------------------------------------------
-known_hosts(doc) ->
-    ["check that known_hosts is updated correctly"];
+known_hosts() ->
+    [{doc, "check that known_hosts is updated correctly"}].
 known_hosts(Config) when is_list(Config) ->
     SystemDir = ?config(data_dir, Config),
     PrivDir = ?config(priv_dir, Config), 
@@ -414,8 +456,8 @@ known_hosts(Config) when is_list(Config) ->
     ssh:stop_daemon(Pid).
 %%--------------------------------------------------------------------
 
-pass_phrase(doc) ->
-    ["Test that we can use keyes protected by pass phrases"];
+pass_phrase() ->
+    [{doc, "Test that we can use keyes protected by pass phrases"}].
 pass_phrase(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     SystemDir = filename:join(?config(priv_dir, Config), system),
@@ -435,8 +477,8 @@ pass_phrase(Config) when is_list(Config) ->
 
 %%--------------------------------------------------------------------
 
-internal_error(doc) ->
-    ["Test that client does not hang if disconnects due to internal error"];
+internal_error() ->
+    [{doc,"Test that client does not hang if disconnects due to internal error"}].
 internal_error(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     SystemDir = filename:join(?config(priv_dir, Config), system),
@@ -445,15 +487,16 @@ internal_error(Config) when is_list(Config) ->
     {Pid, Host, Port} = ssh_test_lib:daemon([{system_dir, SystemDir},
 					     {user_dir, UserDir},
 					     {failfun, fun ssh_test_lib:failfun/2}]),
-    {error,"Internal error"} =
+    {error, Error} =
 	ssh:connect(Host, Port, [{silently_accept_hosts, true},
 				 {user_dir, UserDir},
 				 {user_interaction, false}]),
+    check_error(Error),
     ssh:stop_daemon(Pid).
 
 %%--------------------------------------------------------------------
-send(doc) ->
-    ["Test ssh_connection:send/3"];
+send() ->
+    [{doc, "Test ssh_connection:send/3"}].
 send(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     SystemDir = filename:join(?config(priv_dir, Config), system),
@@ -473,9 +516,85 @@ send(Config) when is_list(Config) ->
 
 
 %%--------------------------------------------------------------------
-close(doc) ->
-    ["Simulate that we try to close an already closed connection"];
+peername_sockname() ->
+    [{doc, "Test ssh:connection_info([peername, sockname])"}].
+peername_sockname(Config) when is_list(Config) ->
+    process_flag(trap_exit, true),
+    SystemDir = filename:join(?config(priv_dir, Config), system),
+    UserDir = ?config(priv_dir, Config),
+
+    {_Pid, Host, Port} = ssh_test_lib:daemon([{system_dir, SystemDir},
+					     {user_dir, UserDir},
+					     {subsystems, [{"peername_sockname",
+							    {ssh_peername_sockname_server, []}}
+							  ]}
+					    ]),
+    ConnectionRef =
+	ssh_test_lib:connect(Host, Port, [{silently_accept_hosts, true},
+					  {user_dir, UserDir},
+					  {user_interaction, false}]),
+    {ok, ChannelId} = ssh_connection:session_channel(ConnectionRef, infinity),
+    success = ssh_connection:subsystem(ConnectionRef, ChannelId, "peername_sockname", infinity),
+    [{peer, {_Name, {HostPeerClient,PortPeerClient} = ClientPeer}}] =
+	ssh:connection_info(ConnectionRef, [peer]),
+    [{sockname, {HostSockClient,PortSockClient} = ClientSock}] =
+	ssh:connection_info(ConnectionRef, [sockname]),
+    ct:pal("Client: ~p ~p", [ClientPeer, ClientSock]),
+    receive
+	{ssh_cm, ConnectionRef, {data, ChannelId, _, Response}} ->
+	    {PeerNameSrv,SockNameSrv} = binary_to_term(Response),
+	    {HostPeerSrv,PortPeerSrv} = PeerNameSrv,
+	    {HostSockSrv,PortSockSrv} = SockNameSrv,
+	    ct:pal("Server: ~p ~p", [PeerNameSrv, SockNameSrv]),
+	    host_equal(HostPeerSrv, HostSockClient),
+	    PortPeerSrv = PortSockClient,
+	    host_equal(HostSockSrv, HostPeerClient),
+	    PortSockSrv = PortPeerClient,
+	    host_equal(HostSockSrv, Host),
+	    PortSockSrv = Port
+    after 10000 ->
+	    throw(timeout)
+    end.
+
+host_equal(H1, H2) ->
+    not ordsets:is_disjoint(ips(H1), ips(H2)).
+
+ips(IP) when is_tuple(IP) -> ordsets:from_list([IP]);
+ips(Name) when is_list(Name) ->
+    {ok,#hostent{h_addr_list=IPs4}} = inet:gethostbyname(Name,inet),
+    {ok,#hostent{h_addr_list=IPs6}} = inet:gethostbyname(Name,inet6),
+    ordsets:from_list(IPs4++IPs6).
+
+%%--------------------------------------------------------------------
+
+close() ->
+    [{doc, "Client receives close when server closes"}].
 close(Config) when is_list(Config) ->
+    process_flag(trap_exit, true),
+    SystemDir = filename:join(?config(priv_dir, Config), system),
+    UserDir = ?config(priv_dir, Config),
+    
+    {Server, Host, Port} = ssh_test_lib:daemon([{system_dir, SystemDir},
+					     {user_dir, UserDir},
+					     {failfun, fun ssh_test_lib:failfun/2}]),
+    Client =
+	ssh_test_lib:connect(Host, Port, [{silently_accept_hosts, true},
+					  {user_dir, UserDir},
+					  {user_interaction, false}]),
+    {ok, ChannelId} = ssh_connection:session_channel(Client, infinity),
+    
+    ssh:stop_daemon(Server),
+    receive 
+	{ssh_cm, Client,{closed, ChannelId}} ->  
+	    ok
+    after 5000 ->
+	    ct:fail(timeout)
+    end.
+
+%%--------------------------------------------------------------------
+double_close() ->
+    [{doc, "Simulate that we try to close an already closed connection"}].
+double_close(Config) when is_list(Config) ->
     SystemDir = ?config(data_dir, Config),
     PrivDir = ?config(priv_dir, Config), 
     UserDir = filename:join(PrivDir, nopubkey), % to make sure we don't use public-key-auth
@@ -493,11 +612,39 @@ close(Config) when is_list(Config) ->
     
     exit(CM, {shutdown, normal}),
     ok = ssh:close(CM).
-    
+
+%%--------------------------------------------------------------------
+
+openssh_zlib_basic_test() ->
+    [{doc, "Test basic connection with openssh_zlib"}].
+openssh_zlib_basic_test(Config) ->
+    SystemDir = filename:join(?config(priv_dir, Config), system),
+    UserDir = ?config(priv_dir, Config),
+
+    {Pid, Host, Port} = ssh_test_lib:daemon([{system_dir, SystemDir},
+					     {user_dir, UserDir},
+					     {failfun, fun ssh_test_lib:failfun/2}]),
+    ConnectionRef =
+	ssh_test_lib:connect(Host, Port, [{silently_accept_hosts, true},
+					  {user_dir, UserDir},
+					  {user_interaction, false},
+					  {compression, openssh_zlib}]),
+    ok = ssh:close(ConnectionRef),
+    ssh:stop_daemon(Pid).
+
 %%--------------------------------------------------------------------
 %% Internal functions ------------------------------------------------
 %%--------------------------------------------------------------------
   
+%% Due to timing the error message may or may not be delivered to
+%% the "tcp-application" before the socket closed message is recived
+check_error("Internal error") ->
+    ok;
+check_error("Connection closed") ->
+    ok;
+check_error(Error) ->
+    ct:fail(Error).
+
 basic_test(Config) ->
     ClientOpts = ?config(client_opts, Config),
     ServerOpts = ?config(server_opts, Config),

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -92,7 +92,7 @@
 	 spawn_driver/1, spawn_executable/1, close_deaf_port/1,
 	 unregister_name/1, parallelism_option/1]).
 
--export([]).
+-export([do_iter_max_ports/2]).
 
 %% Internal exports.
 -export([tps/3]).
@@ -628,15 +628,22 @@ iter_max_ports(Config) when is_list(Config) ->
     
     
 iter_max_ports_test(Config) ->
-    Dog = test_server:timetrap(test_server:minutes(20)),
+    Dog = test_server:timetrap(test_server:minutes(30)),
     PortTest = port_test(Config),
     Command = lists:concat([PortTest, " -h0 -q"]),
     Iters = case os:type() of
 		      {win32,_} -> 4;
 		      _ -> 10
 		  end,
-    L = do_iter_max_ports(Iters, Command),
+    %% Run on a different node in order to limit the effect if this test fails.
+    Dir = filename:dirname(code:which(?MODULE)),
+    {ok,Node} = test_server:start_node(test_iter_max_socks,slave,
+				       [{args,"+Q 2048 -pa " ++ Dir}]),
+    L = rpc:call(Node,?MODULE,do_iter_max_ports,[Iters, Command]),
+    test_server:stop_node(Node),
+
     io:format("Result: ~p",[L]),
+    all_equal(L),
     all_equal(L),
     test_server:timetrap_cancel(Dog),
     {comment, "Max ports: " ++ integer_to_list(hd(L))}.
@@ -670,7 +677,7 @@ close_ports([]) ->
     ok.
 
 open_ports(Name, Settings) ->
-    test_server:sleep(50),
+    test_server:sleep(5),
     case catch open_port(Name, Settings) of
 	P when is_port(P) ->
 	    [P| open_ports(Name, Settings)];

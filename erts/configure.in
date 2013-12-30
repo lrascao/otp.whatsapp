@@ -150,6 +150,14 @@ AS_HELP_STRING([--disable-smp-support], [disable smp support]),
     *)  enable_smp_support=yes ;;
   esac ], enable_smp_support=unknown)
 
+AC_ARG_ENABLE(smp-require-native-atomics,
+	      AS_HELP_STRING([--disable-smp-require-native-atomics],
+                             [disable the SMP requirement of a native atomic implementation]),
+[ case "$enableval" in
+    no) smp_require_native_atomics=no ;;
+    *)  smp_require_native_atomics=yes ;;
+  esac ], smp_require_native_atomics=yes)
+
 AC_ARG_WITH(termcap,
 AS_HELP_STRING([--with-termcap], [use termcap (default)])
 AS_HELP_STRING([--without-termcap],
@@ -385,30 +393,17 @@ if test X${enable_darwin_64bit} = Xyes -o X${enable_m64_build} = Xyes; then
 			;;
 	esac
 else
-	case $host_os in
-		darwin*)
-			case $CFLAGS in
-			*-m32*)
-				;;
-			*)
-				CFLAGS="-m32 $CFLAGS"
-				;;
-			esac
-			;;
-		*)
-			if test X${enable_m32_build} = Xyes;
-			then
-				enable_hipe=no;
-				case $CFLAGS in
-				*-m32*)
-					;;
-				*)
-					CFLAGS="-m32 $CFLAGS"
-				;;
-				esac ;
-			fi
-			;;
-	esac
+	if test X${enable_m32_build} = Xyes;
+	then
+		enable_hipe=no;
+		case $CFLAGS in
+		    *-m32*)
+			    ;;
+		    *)
+			    CFLAGS="-m32 $CFLAGS"
+			    ;;
+		esac ;
+	fi
 fi
 
 
@@ -429,7 +424,7 @@ case $host_os in
     win32)
 	# The ethread library requires _WIN32_WINNT of at least 0x0403.
 	# -D_WIN32_WINNT=* from CPPFLAGS is saved in ETHR_DEFS.
-	CPPFLAGS="$CPPFLAGS -D_WIN32_WINNT=0x0500 -DWINVER=0x0500"
+	CPPFLAGS="$CPPFLAGS -D_WIN32_WINNT=0x0501 -DWINVER=0x0501"
 	;;
     darwin*)
         CPPFLAGS="$CPPFLAGS -D_XOPEN_SOURCE"
@@ -624,6 +619,7 @@ case $chk_arch_ in
     armv5teb)	ARCH=arm;;
     armv5tel)	ARCH=arm;;
     armv5tejl)	ARCH=arm;;
+    armv6l) ARCH=arm;;
     armv7l)	ARCH=arm;;
     tile)	ARCH=tile;;
     *)	 	ARCH=noarch;;
@@ -1042,11 +1038,18 @@ if test $ERTS_BUILD_SMP_EMU = yes; then
 
 	AC_DEFINE(ERTS_HAVE_SMP_EMU, 1, [Define if the smp emulator is built])
 
-	case "$ethr_have_native_atomics-$ethr_have_native_spinlock" in
+	test "X$smp_require_native_atomics" = "Xyes" &&
+	     AC_DEFINE(ETHR_SMP_REQUIRE_NATIVE_IMPLS, 1, [Define if you want to enable check for native ethread implementations])
+
+	case "$ethr_have_native_atomics-$smp_require_native_atomics-$ethr_have_native_spinlock" in
 	  yes-*)
 		;;
 
-	  no-yes)
+	  no-yes-*)
+		AC_MSG_ERROR([No native atomic implementation found. See Configuring section in INSTALL.md for more information.])
+		;;
+
+	  no-no-yes)
 
 		test -f "$ERL_TOP/erts/CONF_INFO" ||
 		    echo "" > "$ERL_TOP/erts/CONF_INFO"
@@ -1055,12 +1058,13 @@ if test $ERTS_BUILD_SMP_EMU = yes; then
                  No native atomic implementation available.
                  Fallbacks implemented using spinlocks will be
                  used. Note that the performance of the SMP
-                 runtime system will suffer due to this.
+                 runtime system will suffer immensely due to
+		 this.
 
 EOF
 		;;
 
-	  no-no)
+	  no-no-no)
 
 		test -f "$ERL_TOP/erts/CONF_INFO" ||
 		    echo "" > "$ERL_TOP/erts/CONF_INFO"
@@ -1070,7 +1074,7 @@ EOF
                  spinlock implementation available. Fallbacks
                  implemented using mutexes will be used. Note
                  that the performance of the SMP runtime system
-                 will suffer much due to this.
+                 will suffer immensely due to this.
 
 EOF
 		;;
@@ -1082,8 +1086,26 @@ fi
 
 AC_SUBST(ERTS_BUILD_SMP_EMU)
 
-AC_CHECK_FUNCS([posix_fadvise fallocate closefrom])
+AC_CHECK_FUNCS([posix_fadvise closefrom])
 AC_CHECK_HEADERS([linux/falloc.h])
+dnl * Old glibcs have broken fallocate64(). Make sure not to use it.
+AC_CACHE_CHECK([whether fallocate() works],i_cv_fallocate_works,[
+    AC_TRY_LINK([
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <fcntl.h>
+        #include <unistd.h>
+	#include <fcntl.h>
+	#include <linux/falloc.h>
+	],
+        [	            
+	int fd = creat("conftest.temp", 0600);
+        fallocate(fd, FALLOC_FL_KEEP_SIZE,(off_t)  1024,(off_t)  1024);
+    	], i_cv_fallocate_works=yes, i_cv_fallocate_works=no)
+])
+if test $i_cv_fallocate_works = yes; then
+   AC_DEFINE(HAVE_FALLOCATE, 1, Define if you have a working fallocate())
+fi
 
 dnl * Old glibcs have broken posix_fallocate(). Make sure not to use it.
 dnl * It may also be broken in AIX.
@@ -1322,6 +1344,17 @@ AC_SUBST(TERMCAP_LIB)
 if test "x$TERMCAP_LIB" != "x"; then
 
 	AC_DEFINE(HAVE_TERMCAP, 1, [Define if termcap functions exists])
+fi
+
+if test "X$host" != "Xwin32"; then
+    AC_MSG_CHECKING(for wcwidth)
+    AC_TRY_LINK([#include <wchar.h>], [wcwidth(0);],
+                have_wcwidth=yes, have_wcwidth=no)
+    if test $have_wcwidth = yes; then
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_WCWIDTH, [1],
+                  [Define to 1 if you have a `wcwidth' function.])
+    fi
 fi
 
 dnl -------------
@@ -1601,7 +1634,7 @@ if test "x$enable_sctp" != "xno" ; then
 fi
 
 if test x"$ac_cv_header_netinet_sctp_h" = x"yes"; then
-    AC_CHECK_FUNCS([sctp_bindx sctp_peeloff])
+    AC_CHECK_FUNCS([sctp_bindx sctp_peeloff sctp_getladdrs sctp_freeladdrs sctp_getpaddrs sctp_freepaddrs])
     AC_CHECK_DECLS([SCTP_UNORDERED, SCTP_ADDR_OVER, SCTP_ABORT,
                     SCTP_EOF, SCTP_SENDALL, SCTP_ADDR_CONFIRMED,
 		    SCTP_DELAYED_ACK_TIME,
@@ -1632,6 +1665,10 @@ if test x"$ac_cv_header_netinet_sctp_h" = x"yes"; then
          #include <netinet/sctp.h>
         ])
 fi
+
+dnl Check for setns
+AC_CHECK_HEADERS(sched.h setns.h)
+AC_CHECK_FUNCS([setns])
 
 HAVE_VALGRIND=no
 AC_CHECK_HEADER(valgrind/valgrind.h, HAVE_VALGRIND=yes)
@@ -1924,10 +1961,38 @@ AC_CHECK_FUNCS([getipnodebyname getipnodebyaddr gethostbyname2])
 
 AC_CHECK_FUNCS([ieee_handler fpsetmask finite isnan isinf res_gethostbyname dlopen \
 		pread pwrite memmove strerror strerror_r strncasecmp \
-		gethrtime localtime_r gmtime_r inet_pton mmap mremap memcpy mallopt \
-		sbrk _sbrk __sbrk brk _brk __brk \
+		gethrtime localtime_r gmtime_r inet_pton \
+		mmap mremap memcpy mallopt sbrk _sbrk __sbrk brk _brk __brk \
 		flockfile fstat strlcpy strlcat setsid posix2time time2posix \
-		setlocale nl_langinfo poll])
+		setlocale nl_langinfo poll mlockall])
+
+
+case X$erl_xcomp_posix_memalign in
+     Xno) ;;
+     Xyes) AC_DEFINE(HAVE_POSIX_MEMALIGN,[1],
+                [Define to 1 if you have the `posix_memalign' function.]) ;;
+     *)
+	AC_CHECK_FUNC(
+		[posix_memalign],
+                [if test "$cross_compiling" != yes; then
+AC_TRY_RUN([
+#include <stdlib.h>
+int main(void) {
+    void *ptr = NULL;
+    int error;
+    size_t alignment = 0x40000, size = 0x20028;
+    if ((error = posix_memalign(&ptr, alignment, size)) != 0 || ptr == NULL)
+      return error;
+    return 0;
+}
+],AC_DEFINE(HAVE_POSIX_MEMALIGN,[1],
+    [Define to 1 if you have the `posix_memalign' function.])
+)
+		 else
+			AC_DEFINE(HAVE_POSIX_MEMALIGN,[1],
+		[Define to 1 if you have the `posix_memalign' function.])
+		 fi]);;
+esac
 
 dnl writev on OS X snow leopard is broken for files > 4GB
 case $host_os in
@@ -3558,10 +3623,7 @@ DED_EXT=so
 case $host_os in
     win32) DED_EXT=dll;;
     darwin*)
-	DED_CFLAGS="$DED_CFLAGS -fno-common"
-	if test "X$STATIC_CFLAGS" = "X"; then
-	    STATIC_CFLAGS="-mdynamic-no-pic"
-	fi;;
+	DED_CFLAGS="$DED_CFLAGS -fno-common";;
     *)
 	;;
 esac

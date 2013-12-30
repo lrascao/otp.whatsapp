@@ -46,7 +46,7 @@
 	 decrypt_config_file/2, decrypt_config_file/3,
 	 get_crypt_key_from_file/0, get_crypt_key_from_file/1]).
 
--export([get_ref_from_name/1, get_name_from_ref/1, get_key_from_name/1]).
+-export([get_key_from_name/1]).
 
 -export([check_config_files/1, add_default_callback/1, prepare_config_list/1]).
 
@@ -56,7 +56,7 @@
 
 -define(cryptfile, ".ct_config.crypt").
 
--record(ct_conf,{key,value,handler,config,ref,name='_UNDEF',default=false}).
+-record(ct_conf,{key,value,handler,config,name='_UNDEF',default=false}).
 
 start(Mode) ->
     case whereis(ct_config_server) of
@@ -275,7 +275,6 @@ store_config(Config, Callback, File) when is_list(Config) ->
 			 value=Val,
 			 handler=Callback,
 			 config=File,
-			 ref=ct_util:ct_make_ref(),
 			 default=false}) ||
 	{Key,Val} <- Config].
 
@@ -296,13 +295,11 @@ rewrite_config(Config, Callback, File) ->
 			   #ct_conf{key=Key,
 				    value=Value,
 				    handler=Callback,
-				    config=File,
-				    ref=ct_util:ct_make_ref()});
+				    config=File});
 	    RowsToUpdate ->
 		Inserter = fun(Row) ->
 				   ets:insert(?attr_table,
-					      Row#ct_conf{value=Value,
-							  ref=ct_util:ct_make_ref()})
+					      Row#ct_conf{value=Value})
 			   end,
 		lists:foreach(Inserter, RowsToUpdate)
 	end
@@ -314,7 +311,7 @@ set_config(Config,Default) ->
 
 set_config(Name,Config,Default) ->
     [ets:insert(?attr_table,
-		#ct_conf{key=Key,value=Val,ref=ct_util:ct_make_ref(),
+		#ct_conf{key=Key,value=Val,
 			 name=Name,default=Default}) ||
 	{Key,Val} <- Config].
 
@@ -559,26 +556,6 @@ encrypt_config_file(SrcFileName, EncryptFileName) ->
 	    encrypt_config_file(SrcFileName, EncryptFileName, {key,Key})
     end.
 
-get_ref_from_name(Name) ->
-    case ets:select(?attr_table,[{#ct_conf{name=Name,ref='$1',_='_'},
-				  [],
-				  ['$1']}]) of
-	[Ref] ->
-	    {ok,Ref};
-	_ ->
-	    {error,{no_such_name,Name}}
-    end.
-
-get_name_from_ref(Ref) ->
-    case ets:select(?attr_table,[{#ct_conf{name='$1',ref=Ref,_='_'},
-				  [],
-				  ['$1']}]) of
-	[Name] ->
-	    {ok,Name};
-	_ ->
-	    {error,{no_such_ref,Ref}}
-    end.
-
 get_key_from_name(Name) ->
     case ets:select(?attr_table,[{#ct_conf{name=Name,key='$1',_='_'},
 				  [],
@@ -599,7 +576,7 @@ encrypt_config_file(SrcFileName, EncryptFileName, {file,KeyFile}) ->
 
 encrypt_config_file(SrcFileName, EncryptFileName, {key,Key}) ->
     crypto:start(),
-    {K1,K2,K3,IVec} = make_crypto_key(Key),
+    {Key,IVec} = make_crypto_key(Key),
     case file:read_file(SrcFileName) of
 	{ok,Bin0} ->
 	    Bin1 = term_to_binary({SrcFileName,Bin0}),
@@ -607,7 +584,7 @@ encrypt_config_file(SrcFileName, EncryptFileName, {key,Key}) ->
 		       0 -> Bin1;
 		       N -> list_to_binary([Bin1,random_bytes(8-N)])
 		   end,
-	    EncBin = crypto:des3_cbc_encrypt(K1, K2, K3, IVec, Bin2),
+	    EncBin = crypto:block_encrypt(des3_cbc, Key, IVec, Bin2),
 	    case file:write_file(EncryptFileName, EncBin) of
 		ok ->
 		    io:format("~ts --(encrypt)--> ~ts~n",
@@ -638,10 +615,10 @@ decrypt_config_file(EncryptFileName, TargetFileName, {file,KeyFile}) ->
 
 decrypt_config_file(EncryptFileName, TargetFileName, {key,Key}) ->
     crypto:start(),
-    {K1,K2,K3,IVec} = make_crypto_key(Key),
+    {Key,IVec} = make_crypto_key(Key),
     case file:read_file(EncryptFileName) of
 	{ok,Bin} ->
-	    DecBin = crypto:des3_cbc_decrypt(K1, K2, K3, IVec, Bin),
+	    DecBin = crypto:block_decrypt(des3_cbc, Key, IVec, Bin),
 	    case catch binary_to_term(DecBin) of
 		{'EXIT',_} ->
 		    {error,bad_file};
@@ -713,7 +690,7 @@ get_crypt_key_from_file() ->
 make_crypto_key(String) ->
     <<K1:8/binary,K2:8/binary>> = First = erlang:md5(String),
     <<K3:8/binary,IVec:8/binary>> = erlang:md5([First|lists:reverse(String)]),
-    {K1,K2,K3,IVec}.
+    {[K1,K2,K3],IVec}.
 
 random_bytes(N) ->
     {A,B,C} = now(),

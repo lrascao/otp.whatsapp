@@ -1,19 +1,19 @@
-# 
+#
 # %CopyrightBegin%
-# 
+#
 # Copyright Ericsson AB 2010-2013. All Rights Reserved.
-# 
+#
 # The contents of this file are subject to the Erlang Public License,
 # Version 1.1, (the "License"); you may not use this file except in
 # compliance with the License. You should have received a copy of the
 # Erlang Public License along with this software. If not, it can be
 # retrieved online at http://www.erlang.org/.
-# 
+#
 # Software distributed under the License is distributed on an "AS IS"
 # basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
 # the License for the specific language governing rights and limitations
 # under the License.
-# 
+#
 # %CopyrightEnd%
 
 include $(ERL_TOP)/make/target.mk
@@ -230,7 +230,7 @@ include $(ERL_TOP)/make/otp_release_targets.mk
 # Can't $(INSTALL_DIR) more than one directory at a time on Solaris.
 
 release_spec: opt
-	for d in bin ebin include src/dict; do \
+	for d in bin ebin examples include src/dict; do \
 	    $(INSTALL_DIR) "$(RELSYSDIR)/$$d"; \
 	done
 	$(INSTALL_SCRIPT) $(BINS:%=../bin/%) "$(RELSYSDIR)/bin"

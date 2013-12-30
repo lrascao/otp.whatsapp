@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -91,6 +91,9 @@
 'OctetString'(decode, Bin)
   when is_binary(Bin) ->
     binary_to_list(Bin);
+
+'OctetString'(decode, B) ->
+    ?INVALID_LENGTH(B);
 
 'OctetString'(encode = M, zero) ->
     'OctetString'(M, []);
@@ -250,44 +253,19 @@
 'Address'(encode, zero) ->
     <<0:48>>;
 
-'Address'(decode, <<1:16, B/binary>>)
-  when size(B) == 4 ->
-    list_to_tuple(binary_to_list(B));
+'Address'(decode, <<A:16, B/binary>>)
+  when 1 == A,  4 == size(B);
+       2 == A, 16 == size(B) ->
+    list_to_tuple([N || <<N:A/unit:8>> <= B]);
 
-'Address'(decode, <<2:16, B/binary>>)
-  when size(B) == 16 ->
-    list_to_tuple(v6dec(B, []));
-
-'Address'(decode, <<A:16, _/binary>> = B)
-  when 1 == A;
-       2 == A ->
+'Address'(decode, B) ->
     ?INVALID_LENGTH(B);
 
 'Address'(encode, T) ->
-    ipenc(diameter_lib:ipaddr(T)).
-
-ipenc(T)
-  when is_tuple(T), size(T) == 4 ->
-    B = list_to_binary(tuple_to_list(T)),
-    <<1:16, B/binary>>;
-
-ipenc(T)
-  when is_tuple(T), size(T) == 8 ->
-    B = v6enc(lists:reverse(tuple_to_list(T)), <<>>),
-    <<2:16, B/binary>>.
-
-v6dec(<<N:16, B/binary>>, Acc) ->
-    v6dec(B, [N | Acc]);
-
-v6dec(<<>>, Acc) ->
-    lists:reverse(Acc).
-
-v6enc([N | Rest], B)
-  when ?UINT(16,N) ->
-    v6enc(Rest, <<N:16, B/binary>>);
-
-v6enc([], B) ->
-    B.
+    Ns = tuple_to_list(diameter_lib:ipaddr(T)),  %% length 4 or 8
+    A = length(Ns) div 4,                        %% 1 or 2
+    B = << <<N:A/unit:8>> || N <- Ns >>,
+    <<A:16, B/binary>>.
 
 %% --------------------
 
@@ -301,13 +279,19 @@ v6enc([], B) ->
     <<_,_/binary>> = 'OctetString'(M, X);
 
 'DiameterIdentity'(decode = M, <<_,_/binary>> = X) ->
-    'OctetString'(M, X).
+    'OctetString'(M, X);
+
+'DiameterIdentity'(decode, X) ->
+    ?INVALID_LENGTH(X).
 
 %% --------------------
 
 'DiameterURI'(decode, Bin)
   when is_binary(Bin) ->
     scan_uri(Bin);
+
+'DiameterURI'(decode, B) ->
+    ?INVALID_LENGTH(B);
 
 %% The minimal DiameterURI is "aaa://x", 7 characters.
 'DiameterURI'(encode = M, zero) ->
@@ -353,37 +337,18 @@ v6enc([], B) ->
 
 %% --------------------
 
-'UTF8String'(decode, Bin) ->
-    udec(Bin, []);
+'UTF8String'(decode, Bin)
+  when is_binary(Bin) ->
+    tl([0|_] = unicode:characters_to_list([0, Bin])); %% assert list return
+
+'UTF8String'(decode, B) ->
+    ?INVALID_LENGTH(B);
 
 'UTF8String'(encode = M, zero) ->
     'UTF8String'(M, []);
 
 'UTF8String'(encode, S) ->
-    uenc(S, []).
-
-udec(<<>>, Acc) ->
-    lists:reverse(Acc);
-
-udec(<<C/utf8, Rest/binary>>, Acc) ->
-    udec(Rest, [C | Acc]).
-
-uenc(E, Acc)
-  when E == [];
-       E == <<>> ->
-    list_to_binary(lists:reverse(Acc));
-
-uenc(<<C/utf8, Rest/binary>>, Acc) ->
-    uenc(Rest, [<<C/utf8>> | Acc]);
-
-uenc([[] | Rest], Acc) ->
-    uenc(Rest, Acc);
-
-uenc([[H|T] | Rest], Acc) ->
-    uenc([H, T | Rest], Acc);
-
-uenc([C | Rest], Acc) ->
-    uenc(Rest, [<<C/utf8>> | Acc]).
+    <<_/binary>> = unicode:characters_to_binary(S).   %% assert binary return
 
 %% --------------------
 

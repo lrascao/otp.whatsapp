@@ -37,17 +37,23 @@
     <list type="bulleted">
       <item>ssl requires the crypto and public_key applications.</item>
       <item>Supported SSL/TLS-versions are SSL-3.0, TLS-1.0,
-      TLS-1.1 and TLS-1.2 (no support for elliptic curve cipher suites yet).</item>
+      TLS-1.1 and TLS-1.2.</item>
       <item>For security reasons sslv2 is not supported.</item>
       <item>Ephemeral Diffie-Hellman cipher suites are supported
       but not Diffie Hellman Certificates cipher suites.</item>
+      <item>Elliptic Curve cipher suites are supported if crypto
+      supports it and named curves are used.
+      </item>
       <item>Export cipher suites are not supported as the
       U.S. lifted its export restrictions in early 2000.</item>
       <item>IDEA cipher suites are not supported as they have
       become deprecated by the latest TLS spec so there is not any
       real motivation to implement them.</item>
-      <item>CRL and policy certificate
-            extensions are not supported yet. </item>
+      <item>CRL and policy certificate extensions are not supported
+      yet. However CRL verification is supported by public_key, only not integrated
+      in ssl yet. </item>
+      <item>Support for 'Server Name Indication' extension client side
+      (RFC 6066 section 3).</item>
     </list>
  
   </section>
@@ -70,18 +76,20 @@
       <seealso marker="kernel:gen_tcp">gen_tcp(3)</seealso>.
     </p>
     
-    <p> <c>ssloption() = {verify, verify_type()} |
+    <p><marker id="type-ssloption"></marker><c>ssloption() = {verify, verify_type()} |
       {verify_fun, {fun(), term()}} |
       {fail_if_no_peer_cert, boolean()}
       {depth, integer()} |
       {cert, der_encoded()}| {certfile, path()} |
-      {key, {'RSAPrivateKey'| 'DSAPrivateKey' | 'PrivateKeyInfo', der_encoded()}} |
+      {key, {'RSAPrivateKey'| 'DSAPrivateKey' | 'ECPrivateKey' |'PrivateKeyInfo', der_encoded()}} |
       {keyfile, path()} | {password, string()} |
       {cacerts, [der_encoded()]} | {cacertfile, path()} |
       |{dh, der_encoded()} | {dhfile, path()} | {ciphers, ciphers()} |
+      {user_lookup_fun, {fun(), term()}}, {psk_identity, string()}, {srp_identity, {string(), string()}} |
       {ssl_imp, ssl_imp()} | {reuse_sessions, boolean()} | {reuse_session, fun()}
-      {next_protocols_advertised, list(binary()} |
-      {client_preferred_next_protocols, binary(), client | server, list(binary())}
+      {next_protocols_advertised, [binary()]} |
+      {client_preferred_next_protocols, {client | server, [binary()]} | {client | server, [binary()], binary()}} |
+      {log_alert, boolean()} | {server_name_indication, hostname() | disable}
     </c></p>
 
     <p><c>transportoption() = {cb_info, {CallbackModule::atom(), DataTag::atom(), ClosedTag::atom(), ErrTag:atom()}}
@@ -123,6 +131,8 @@
       {key_exchange(), cipher(), hash()}</c></p>
     
     <p><c>key_exchange() =  rsa | dhe_dss | dhe_rsa | dh_anon
+       | psk | dhe_psk | rsa_psk | srp_anon | srp_dss | srp_rsa
+       | ecdh_anon | ecdh_ecdsa | ecdhe_ecdsa | ecdh_rsa | ecdhe_rsa
     </c></p>
 
    <p><c>cipher() = rc4_128 | des_cbc | '3des_ede_cbc'
@@ -133,6 +143,9 @@
 
     <p><c>prf_random() =  client_random | server_random
     </c></p>
+
+   <p><c>srp_param_type() = srp_1024 | srp_1536 | srp_2048 | srp_3072
+      | srp_4096 | srp_6144 | srp_8192</c></p>
 
   </section>
 
@@ -152,7 +165,7 @@
       <tag>{certfile, path()}</tag>
       <item>Path to a file containing the user's certificate.</item>
       
-      <tag>{key, {'RSAPrivateKey'| 'DSAPrivateKey' | 'PrivateKeyInfo', der_encoded()}}</tag>
+      <tag>{key, {'RSAPrivateKey'| 'DSAPrivateKey' | 'ECPrivateKey' |'PrivateKeyInfo', der_encoded()}}</tag>
       <item> The DER encoded users private key. If this option
       is supplied it will override the keyfile option.</item>
       
@@ -179,13 +192,16 @@
 
       <tag>{ciphers, ciphers()}</tag>
       <item>The cipher suites that should be supported. The function
-      <c>cipher_suites/0</c> can be used to find all available
-      ciphers. Additionally some anonymous cipher suites ({dh_anon,
-      rc4_128, md5}, {dh_anon, des_cbc, sha}, {dh_anon,
-      '3des_ede_cbc', sha}, {dh_anon, aes_128_cbc, sha}, {dh_anon,
-      aes_256_cbc, sha}) are supported for testing purposes and will
-      only work if explicitly enabled by this option and they are supported/enabled
-      by the peer also.
+      <c>cipher_suites/0</c> can be used to find all ciphers that are
+      supported by default.  <c>cipher_suites(all)</c> may be called
+      to find all available cipher suites.   
+      Pre-Shared Key (<url href="http://www.ietf.org/rfc/rfc4279.txt">RFC 4279</url> and
+      <url href="http://www.ietf.org/rfc/rfc5487.txt">RFC 5487</url>), 
+      Secure Remote Password (<url href="http://www.ietf.org/rfc/rfc5054.txt">RFC 5054</url>) 
+      and anonymous cipher suites only work if explicitly enabled by
+      this option and they are supported/enabled by the peer also.
+      Note that anonymous cipher suites are supported for testing purposes
+      only and should not be used when security matters.
       </item>
 
       <tag>{ssl_imp, new | old}</tag>
@@ -195,10 +211,10 @@
 
       <tag>{secure_renegotiate, boolean()}</tag>
       <item>Specifies if to reject renegotiation attempt that does
-      not live up to RFC 5746. By default secure_renegotiate is
+      not live up to <url href="http://www.ietf.org/rfc/rfc5746.txt">RFC 5746</url>. By default secure_renegotiate is
       set to false i.e. secure renegotiation will be used if possible
       but it will fallback to unsecure renegotiation if the peer
-      does not support RFC 5746.
+      does not support <url href="http://www.ietf.org/rfc/rfc5746.txt">RFC 5746</url>.
       </item>
 
       <tag>{depth, integer()}</tag>
@@ -292,6 +308,32 @@ fun(OtpCert :: #'OTPCertificate'{}, Event :: {bad_cert, Reason :: atom()} |
             <c>undefined</c> is specified (this is the default), the process
             will never go into hibernation.
       </item>
+
+      <tag>{user_lookup_fun, {Lookupfun :: fun(), UserState :: term()}}</tag>
+      <item>
+	<p>The lookup fun should be defined as:</p>
+	<code>
+fun(psk, PSKIdentity ::string(), UserState :: term()) ->
+	{ok, SharedSecret :: binary()} | error;
+fun(srp, Username :: string(), UserState :: term()) ->
+	{ok, {SRPParams :: srp_param_type(), Salt :: binary(), DerivedKey :: binary()}} | error.
+	</code>
+
+	<p>For Pre-Shared Key (PSK) cipher suites, the lookup fun will
+	be called by the client and server to determine the shared
+	secret. When called by the client, PSKIdentity will be set to the
+	hint presented by the server or undefined. When called by the
+	server, PSKIdentity is the identity presented by the client.
+	</p>
+
+	<p>For Secure Remote Password (SRP), the fun will only be used by the server to obtain
+	parameters that it will use to generate its session keys. <c>DerivedKey</c> should be 
+	derived according to <url href="http://tools.ietf.org/html/rfc2945#section-3"> RFC 2945</url> and
+	 <url href="http://tools.ietf.org/html/rfc5054#section-2.4"> RFC 5054</url>:
+	<c>crypto:sha([Salt, crypto:sha([Username, &lt;&lt;$:&gt;&gt;, Password])]) </c>
+	</p>
+      </item>
+
     </taglist>
 
   </section>
@@ -313,27 +355,44 @@ fun(OtpCert :: #'OTPCertificate'{}, Event :: {bad_cert, Reason :: atom()} |
       when possible.
       </item>
 
-      <tag>{client_preferred_next_protocols,  Precedence:: server | client, ClientPrefs::[binary()]}
-           {client_preferred_next_protocols,  Precedence:: server | client, ClientPrefs::[binary()] , Default :: binary()}}</tag>
-
-	   <item> <p>Indicates the client will try to perform Next Protocol
+      <tag>{client_preferred_next_protocols, {Precedence :: server | client, ClientPrefs :: [binary()]}}</tag>
+      <tag>{client_preferred_next_protocols, {Precedence :: server | client, ClientPrefs :: [binary()], Default :: binary()}}</tag>
+	   <item>
+	   <p>Indicates the client will try to perform Next Protocol
 	   Negotiation.</p>
 
-	    <p>If precedence is server the negaotiated protocol will be the
+	   <p>If precedence is server the negotiated protocol will be the
 	   first protocol that appears on the server advertised list that is
-	   also on the clients preference list.</p>
+	   also on the client preference list.</p>
 
-	   <p>If the precedence is client the negaotiated protocol will be the
-	   first protocol that appears on the clients preference list that is
+	   <p>If precedence is client the negotiated protocol will be the
+	   first protocol that appears on the client preference list that is
 	   also on the server advertised list.</p>
 
-	  <p> If the client does not support any of the servers advertised
+	   <p>If the client does not support any of the server advertised
 	   protocols or the server does not advertise any protocols the
 	   client will fallback to the first protocol in its list or if a
 	   default is supplied it will fallback to that instead. If the
-	   server does not support next protocol renegotiation the
+	   server does not support Next Protocol Negotiation the
 	   connection will be aborted if no default protocol is supplied.</p>
 	   </item>
+
+      <tag>{psk_identity, string()}</tag>
+      <item>Specifies the identity the client presents to the server. The matching secret is
+      found by calling the user_look_fun.
+      </item>
+      <tag>{srp_identity, {Username :: string(), Password :: string()}</tag>
+      <item>Specifies the Username and Password to use to authenticate to the server.
+      </item>
+      <tag>{server_name_indication, hostname()}</tag>
+      <tag>{server_name_indication, disable}</tag>
+      <item>
+        <p>This option can be specified when upgrading a TCP socket to a TLS
+        socket to use the TLS Server Name Indication extension.</p>
+        <p>When starting a TLS connection without upgrade the Server Name
+        Indication extension will be sent if possible, this option may also be
+        used to disable that behavior.</p>
+      </item>
     </taglist>
    </section>
 
@@ -388,7 +447,7 @@ fun(OtpCert :: #'OTPCertificate'{}, Event :: {bad_cert, Reason :: atom()} |
       and CipherSuite is of type ciphersuite().
     </item>
 
-      <tag>{next_protocols_advertised, Protocols :: list(binary())}</tag>
+      <tag>{next_protocols_advertised, Protocols :: [binary()]}</tag>
       <item>The list of protocols to send to the client if the client indicates
       it supports the Next Protocol extension. The client may select a protocol
       that is not on this list. The list of protocols must not contain an empty
@@ -396,6 +455,11 @@ fun(OtpCert :: #'OTPCertificate'{}, Event :: {bad_cert, Reason :: atom()} |
       using <c>negotiated_next_protocol/1</c> method.
       </item>
 
+      <tag>{psk_identity, string()}</tag>
+      <item>Specifies the server identity hint the server presents to the client.
+      </item>
+      <tag>{log_alert, boolean()}</tag>
+      <item>If false, error reports will not be displayed.</item>
     </taglist>
   </section>
   
@@ -427,13 +491,16 @@ fun(OtpCert :: #'OTPCertificate'{}, Event :: {bad_cert, Reason :: atom()} |
       <name>cipher_suites(Type) -> ciphers()</name>
       <fsummary> Returns a list of supported cipher suites</fsummary>
       <type>
-        <v>Type = erlang | openssl</v>
+        <v>Type = erlang | openssl | all</v>
 
       </type>
       <desc><p>Returns a list of supported cipher suites.
 	cipher_suites() is equivalent to cipher_suites(erlang).
 	Type openssl is provided for backwards compatibility with
-	old ssl that used openssl.
+	old ssl that used openssl. cipher_suites(all) returns
+	all available cipher suites. The cipher suites not present
+	in cipher_suites(erlang) but in included in cipher_suites(all)
+	will not be used unless explicitly configured by the user.
 	</p>
     </desc>
     </func>
@@ -820,7 +887,6 @@ fun(OtpCert :: #'OTPCertificate'{}, Event :: {bad_cert, Reason :: atom()} |
         </p>
       </desc>
     </func>
-
 
   </funcs> 
 

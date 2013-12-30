@@ -2,7 +2,7 @@
 
 # %CopyrightBegin%
 # 
-# Copyright Ericsson AB 2001-2011. All Rights Reserved.
+# Copyright Ericsson AB 2001-2013. All Rights Reserved.
 # 
 # The contents of this file are subject to the Erlang Public License,
 # Version 1.1, (the "License"); you may not use this file except in
@@ -41,6 +41,8 @@ XML_AGENT_REF3_FILES = \
 	snmpa_error_io.xml \
 	snmpa_error_logger.xml \
 	snmpa_local_db.xml \
+	snmpa_mib_data.xml \
+	snmpa_mib_storage.xml \
 	snmpa_mpd.xml \
 	snmpa_network_interface.xml \
 	snmpa_network_interface_filter.xml \

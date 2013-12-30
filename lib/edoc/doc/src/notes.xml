@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -30,6 +30,23 @@
   </header>
   <p>This document describes the changes made to the EDoc
     application.</p>
+
+<section><title>Edoc 0.7.12.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The encoding of the <c>notes.xml</c> file has been
+	    changed from latin1 to utf-8 to avoid future merge
+	    problems.</p>
+          <p>
+	    Own Id: OTP-11310</p>
+        </item>
+      </list>
+    </section>
+
+</section>
 
 <section><title>Edoc 0.7.12</title>
 
@@ -219,7 +236,7 @@
       <list>
         <item>
 	    <p> Add encoding when parsing Wiki text. EDoc used to
-	    fail on strings such as "äåö". (Thanks to Richard
+	    fail on strings such as "Ã¤Ã¥Ã¶". (Thanks to Richard
 	    Carlsson.) </p>
           <p>
 	    Own Id: OTP-9109</p>

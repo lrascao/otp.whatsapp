@@ -724,7 +724,7 @@ L_Again:   /* Restart with sublist, old listend was pushed on stack */
 			hp = HAlloc(p, 2);
 			obj = CDR(objp);
 			ioterm = CONS(hp, rest_term, obj);
-			//(*left) = 0;
+			/* (*left) = 0; */
 			goto done;
 		    }
 		    if (rest_term != NIL) {
@@ -1476,6 +1476,9 @@ static Eterm do_utf8_to_list_normalize(Process *p, Uint num, byte *bytes, Uint s
     Uint16 savepoints[4];
     int numpoints = 0;
 
+    if (num == 0)
+	return NIL;
+
     ASSERT(num > 0);
 
     hp = HAlloc(p,num * 2); /* May be to much */
@@ -1723,14 +1726,14 @@ static BIF_RETTYPE do_bif_utf8_to_list(Process *p,
     if (b_sz) {
 	ErlSubBin *sb;
 	Eterm orig;
-	ERTS_DECLARE_DUMMY(Uint offset);
+	Uint offset;
 	ASSERT(state != ERTS_UTF8_OK);
 	hp = HAlloc(p, ERL_SUB_BIN_SIZE);
 	sb = (ErlSubBin *) hp;
 	ERTS_GET_REAL_BIN(orig_bin, orig, offset, bitoffs, bitsize);
 	sb->thing_word = HEADER_SUB_BIN;
 	sb->size = b_sz;
-	sb->offs = num_bytes_to_process + num_processed_bytes;
+	sb->offs = offset + num_bytes_to_process + num_processed_bytes;
 	sb->orig = orig;
 	sb->bitoffs = bitoffs;
 	sb->bitsize = bitsize;

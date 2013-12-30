@@ -530,7 +530,7 @@ valfun_2(I, #vst{current=#st{ct=[[Fail]|_]}}=Vst) when is_integer(Fail) ->
     %% Update branched state
     valfun_3(I, branch_state(Fail, Vst));
 valfun_2(_, _) ->
-    error(ambigous_catch_try_state).
+    error(ambiguous_catch_try_state).
 
 %% Handle the remaining floating point instructions here.
 %% Floating point.
@@ -628,6 +628,7 @@ valfun_4({gc_bif,Op,{f,Fail},Live,Src,Dst}, #vst{current=St0}=Vst0) ->
     Type = bif_type(Op, Src, Vst),
     set_type_reg(Type, Dst, Vst);
 valfun_4(return, #vst{current=#st{numy=none}}=Vst) ->
+    assert_term({x,0}, Vst),
     kill_state(Vst);
 valfun_4(return, #vst{current=#st{numy=NumY}}) ->
     error({stack_frame,NumY});

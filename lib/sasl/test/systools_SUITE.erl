@@ -43,6 +43,7 @@
 -export([script_options/1, normal_script/1, unicode_script/1,
 	 unicode_script/2, no_mod_vsn_script/1,
 	 wildcard_script/1, variable_script/1, no_sasl_script/1,
+	 no_dot_erlang_script/1,
 	 abnormal_script/1, src_tests_script/1, crazy_script/1,
 	 included_script/1, included_override_script/1,
 	 included_fail_script/1, included_bug_script/1, exref_script/1,
@@ -59,6 +60,7 @@
 -export([otp_6226_outdir/1]).
 -export([init_per_suite/1, end_per_suite/1, 
 	 init_per_testcase/2, end_per_testcase/2]).
+-export([delete_tree/1]).
 
 -import(lists, [foldl/3]).
 
@@ -78,7 +80,8 @@ groups() ->
     [{script, [],
       [script_options, normal_script, unicode_script, no_mod_vsn_script,
        wildcard_script, variable_script, abnormal_script,
-       no_sasl_script, src_tests_script, crazy_script,
+       no_sasl_script, no_dot_erlang_script,
+       src_tests_script, crazy_script,
        included_script, included_override_script,
        included_fail_script, included_bug_script, exref_script,
        otp_3065_circular_dependenies, included_and_used_sort_script]},
@@ -299,6 +302,11 @@ unicode_script(Config) when is_list(Config) ->
     %% 3. path (directory name where unicode_app.tgz is extracted)
     true = lists:member({path,[P1]},Instr),
 
+    %% If all is good, delete the unicode dir to avoid lingering files
+    %% on windows.
+    rpc:call(Node,code,add_pathz,[filename:dirname(code:which(?MODULE))]),
+    rpc:call(Node,?MODULE,delete_tree,[UnicodeLibDir]),
+
     ok.
 
 unicode_script(cleanup,Config) ->
@@ -447,6 +455,34 @@ no_sasl_script(Config) when is_list(Config) ->
 
     {ok, _ , []} =
 	systools:make_script(LatestName,[{path, P},silent, no_warn_sasl]),
+
+    ok = file:set_cwd(OldDir),
+    ok.
+
+%% make_script: Create script with no_dot_erlang. Check script contents.
+no_dot_erlang_script(Config) when is_list(Config) ->
+    {ok, OldDir} = file:get_cwd(),
+
+    {LatestDir, LatestName} = create_script(latest1_no_sasl,Config),
+
+    DataDir = filename:absname(?copydir),
+    LibDir = [fname([DataDir, d_normal, lib])],
+    P = [fname([LibDir, '*', ebin]),
+	 fname([DataDir, lib, kernel, ebin]),
+	 fname([DataDir, lib, stdlib, ebin]),
+	 fname([DataDir, lib, sasl, ebin])],
+
+    ok = file:set_cwd(LatestDir),
+
+    {ok, _ , []} =
+	systools:make_script(LatestName,[{path, P},silent, no_warn_sasl]),
+    {ok, [{_, _, LoadDotErlang}]} = read_script_file(LatestName),
+    [erlangrc] = [E || {apply, {c, E, []}} <- LoadDotErlang],
+
+    {ok, _ , []} =
+	systools:make_script(LatestName,[{path, P},silent, no_warn_sasl, no_dot_erlang]),
+    {ok, [{_, _, DoNotLoadDotErlang}]} = read_script_file(LatestName),
+    [] = [E || {apply, {c, E, []}} <- DoNotLoadDotErlang],
 
     ok = file:set_cwd(OldDir),
     ok.

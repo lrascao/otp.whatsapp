@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2011-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2011-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -108,6 +108,8 @@ struct ErtsThrPrgrLaterOp_ {
 
 #ifdef ERTS_SMP
 
+/* ERTS_THR_PRGR_VAL_FIRST should only be used when initializing... */
+#define ERTS_THR_PRGR_VAL_FIRST ((ErtsThrPrgrVal) 0)
 #define ERTS_THR_PRGR_VAL_WAITING (~((ErtsThrPrgrVal) 0))
 #define ERTS_THR_PRGR_INVALID (~((ErtsThrPrgrVal) 0))
 

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2006-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -281,6 +281,9 @@ sizes(Config) when is_list(Config) ->
     ?line <<1,2,3,0>> = Fun13(6),
     ?line <<1,2,3,0>> = Fun13(7),
     ?line <<1,2,3,0,0>> = Fun13(8),
+
+    <<0:3>> = cs_default(<< <<0:S>> || S <- [0,1,2] >>),
+    <<0:3>> = cs_default(<< <<0:S>> || <<S>> <= <<0,1,2>> >>),
 
     ?line {'EXIT',_} = (catch << <<C:4>> || <<C:8>> <= {1,2,3} >>),
 

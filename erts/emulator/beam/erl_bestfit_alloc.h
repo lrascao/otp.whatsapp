@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2003-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2003-2013. All Rights Reserved.
  * 
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -55,11 +55,10 @@ struct BFAllctr_t_ {
     Allctr_t		allctr; /* Has to be first! */
 
     RBTree_t *		mbc_root;
-    RBTree_t *		sbmbc_root;
     int 		address_order;
 };
 
-unsigned long erts_bfalc_test(unsigned long, unsigned long, unsigned long);
+UWord erts_bfalc_test(UWord, UWord, UWord);
 
 #endif /* #if defined(GET_ERL_BF_ALLOC_IMPL)
 	      && !defined(ERL_BF_ALLOC_IMPL__) */

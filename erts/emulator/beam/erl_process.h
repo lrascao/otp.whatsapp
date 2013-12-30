@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -387,6 +387,10 @@ struct ErtsRunQueue_ {
     } ports;
 };
 
+#ifdef ERTS_SMP
+extern long erts_runq_supervision_interval;
+#endif
+
 typedef union {
     ErtsRunQueue runq;
     char align[ERTS_ALC_CACHE_LINE_ALIGN_SIZE(sizeof(ErtsRunQueue))];
@@ -420,6 +424,11 @@ typedef struct {
 } ErtsSchedWallTime;
 
 typedef struct {
+  Uint64 reclaimed;
+  Uint64 garbage_cols;
+} ErtsGCInfo;
+
+typedef struct {
     int sched;
     erts_aint32_t aux_work;
 } ErtsDelayedAuxWorkWakeupJob;
@@ -430,6 +439,7 @@ typedef struct {
     ErtsSchedulerSleepInfo *ssi;
 #ifdef ERTS_SMP
     ErtsThrPrgrVal current_thr_prgr;
+    ErtsThrPrgrVal latest_wakeup;
 #endif
     struct {
 	int ix;
@@ -444,6 +454,8 @@ typedef struct {
 	void (*completed_arg)(void *);
     } dd;
     struct {
+	ErtsThrPrgrVal thr_prgr;
+	UWord size;
 	ErtsThrPrgrLaterOp *first;
 	ErtsThrPrgrLaterOp *last;
     } later_op;
@@ -504,6 +516,8 @@ struct ErtsSchedulerData_ {
 
     Uint64 reductions;
     ErtsSchedWallTime sched_wall_time;
+    ErtsGCInfo gc_info;
+    ErtsPortTaskHandle nosuspend_port_task_handle;
 
 #ifdef ERTS_DO_VERIFY_UNUSED_TEMP_ALLOC
     erts_alloc_verify_func_t verify_unused_temp_alloc;
@@ -717,6 +731,13 @@ erts_incr_message_count (ErlMessageCount* c)
 }
 
 
+typedef struct ErlExtraRootSet_ ErlExtraRootSet;
+struct ErlExtraRootSet_ {
+    Eterm *objv;
+    Uint sz;
+    void (*cleanup)(ErlExtraRootSet *);
+};
+
 /* Defines to ease the change of memory architecture */
 #  define HEAP_START(p)     (p)->heap
 #  define HEAP_TOP(p)       (p)->htop
@@ -811,6 +832,8 @@ struct process {
     ErlMessageQueue msg;	/* Message queue */
     ErlMessageCount msg_deq;	/* Count of messages dequeued for this process */
     ErlMessageCount msg_send;	/* Count of messages sent by this process */
+
+    ErlExtraRootSet *extra_root;   /* Used by trapping BIF's */
 
     union {
 	ErtsBifTimer *bif_timers;	/* Bif timers aiming at this process */
@@ -1036,6 +1059,7 @@ extern erts_smp_rwmtx_t erts_cpu_bind_rwmtx;
 */
 extern Eterm erts_system_monitor;
 extern Uint erts_system_monitor_long_gc;
+extern Uint erts_system_monitor_long_schedule;
 extern Uint erts_system_monitor_large_heap;
 struct erts_system_monitor_flags_t {
 	 unsigned int busy_port : 1;
@@ -1147,10 +1171,10 @@ extern struct erts_system_profile_flags_t erts_system_profile_flags;
     } while (0)
 
 #define ERTS_RUNQ_IX(IX)						\
-  (ASSERT_EXPR(0 <= (IX) && (IX) < erts_no_run_queues),			\
+  (ASSERT(0 <= (IX) && (IX) < erts_no_run_queues),			\
    &erts_aligned_run_queues[(IX)].runq)
 #define ERTS_SCHEDULER_IX(IX)						\
-  (ASSERT_EXPR(0 <= (IX) && (IX) < erts_no_schedulers),			\
+  (ASSERT(0 <= (IX) && (IX) < erts_no_schedulers),			\
    &erts_aligned_scheduler_data[(IX)].esd)
 
 void erts_pre_init_process(void);
@@ -1159,6 +1183,7 @@ void erts_early_init_scheduling(int);
 void erts_init_scheduling(int, int);
 
 Eterm erts_sched_wall_time_request(Process *c_p, int set, int enable);
+Eterm erts_gc_info_request(Process *c_p);
 Uint64 erts_get_proc_interval(void);
 Uint64 erts_ensure_later_proc_interval(Uint64);
 Uint64 erts_step_proc_interval(void);
@@ -1335,10 +1360,15 @@ ERTS_GLB_INLINE int erts_proclist_is_last(ErtsProcList *list,
 int erts_sched_set_wakeup_other_thresold(char *str);
 int erts_sched_set_wakeup_other_type(char *str);
 int erts_sched_set_busy_wait_threshold(char *str);
+int erts_sched_set_wake_cleanup_threshold(char *);
 
 void erts_schedule_thr_prgr_later_op(void (*)(void *),
 				     void *,
 				     ErtsThrPrgrLaterOp *);
+void erts_schedule_thr_prgr_later_cleanup_op(void (*)(void *),
+					     void *,
+					     ErtsThrPrgrLaterOp *,
+					     UWord);
 
 #if defined(ERTS_SMP) && defined(ERTS_ENABLE_LOCK_CHECK)
 int erts_dbg_check_halloc_lock(Process *p);
@@ -1361,6 +1391,7 @@ int erts_is_multi_scheduling_blocked(void);
 Eterm erts_multi_scheduling_blockers(Process *);
 void erts_start_schedulers(void);
 void erts_alloc_notify_delayed_dealloc(int);
+void erts_alloc_ensure_handle_delayed_dealloc_call(int);
 void erts_smp_notify_check_children_needed(void);
 #endif
 #if ERTS_USE_ASYNC_READY_Q
@@ -1380,7 +1411,7 @@ void erts_schedule_multi_misc_aux_work(int ignore_self,
 erts_aint32_t erts_set_aux_work_timeout(int, erts_aint32_t, int);
 void erts_sched_notify_check_cpu_bind(void);
 Uint erts_active_schedulers(void);
-void erts_init_process(int, int);
+void erts_init_process(int, int, int);
 Eterm erts_process_status(Process *, ErtsProcLocks, Process *, Eterm);
 Uint erts_run_queues_len(Uint *);
 void erts_add_to_runq(Process *);
@@ -1450,6 +1481,8 @@ Eterm erts_debug_reader_groups_map(Process *c_p, int groups);
 
 Uint erts_debug_nbalance(void);
 int erts_debug_wait_deallocations(Process *c_p);
+
+Uint erts_process_memory(Process *c_p);
 
 #ifdef ERTS_SMP
 #  define ERTS_GET_SCHEDULER_DATA_FROM_PROC(PROC) ((PROC)->scheduler_data)
@@ -1993,6 +2026,7 @@ erts_sched_poke(ErtsSchedulerSleepInfo *ssi)
 	erts_sched_finish_poke(ssi, flags);
     }
 }
+
 
 #endif /* #if ERTS_GLB_INLINE_INCL_FUNC_DEF */
 

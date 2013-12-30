@@ -247,7 +247,11 @@
 
 -define(is_timeout(T), (is_integer(T) orelse T==infinity)).
 -define(is_filter(F),
-	(is_atom(F) orelse (is_tuple(F) andalso is_atom(element(1,F))))).
+	(?is_simple_xml(F)
+	 orelse (F==[])
+	 orelse (is_list(F) andalso ?is_simple_xml(hd(F))))).
+-define(is_simple_xml(Xml),
+	(is_atom(Xml) orelse (is_tuple(Xml) andalso is_atom(element(1,Xml))))).
 -define(is_string(S), (is_list(S) andalso is_integer(hd(S)))).
 
 %%----------------------------------------------------------------------
@@ -540,21 +544,50 @@ get_capabilities(Client) ->
 get_capabilities(Client, Timeout) ->
     call(Client, get_capabilities, Timeout).
 
-%% @private
+%%----------------------------------------------------------------------
+%% @spec send(Client, SimpleXml) -> Result
+%% @equiv send(Client, SimpleXml, infinity)
 send(Client, SimpleXml) ->
     send(Client, SimpleXml, ?DEFAULT_TIMEOUT).
-%% @private
+
+%%----------------------------------------------------------------------
+-spec send(Client, SimpleXml, Timeout) -> Result when
+      Client :: client(),
+      SimpleXml :: simple_xml(),
+      Timeout :: timeout(),
+      Result :: ok | {error,error_reason()}.
+%% @doc Send an XML document to the server.
+%%
+%% The given XML document is sent as is to the server. This function
+%% can be used for sending XML documents that can not be expressed by
+%% other interface functions in this module.
 send(Client, SimpleXml, Timeout) ->
     call(Client,{send, Timeout, SimpleXml}).
 
-%% @private
+%%----------------------------------------------------------------------
+%% @spec send_rpc(Client, SimpleXml) -> Result
+%% @equiv send_rpc(Client, SimpleXml, infinity)
 send_rpc(Client, SimpleXml) ->
     send_rpc(Client, SimpleXml, ?DEFAULT_TIMEOUT).
-%% @private
+
+%%----------------------------------------------------------------------
+-spec send_rpc(Client, SimpleXml, Timeout) -> Result when
+      Client :: client(),
+      SimpleXml :: simple_xml(),
+      Timeout :: timeout(),
+      Result :: ok | {error,error_reason()}.
+%% @doc Send a Netconf <code>rpc</code> request to the server.
+%%
+%% The given XML document is wrapped in a valid Netconf
+%% <code>rpc</code> request and sent to the server. The
+%% <code>message-id</code> and namespace attributes are added to the
+%% <code>rpc</code> element.
+%%
+%% This function can be used for sending <code>rpc</code> requests
+%% that can not be expressed by other interface functions in this
+%% module.
 send_rpc(Client, SimpleXml, Timeout) ->
     call(Client,{send_rpc, SimpleXml, Timeout}).
-
-
 
 %%----------------------------------------------------------------------
 %% @spec lock(Client, Target) -> Result
@@ -761,7 +794,7 @@ create_subscription(Client,Timeout)
   when ?is_timeout(Timeout) ->
     create_subscription(Client,?DEFAULT_STREAM,Timeout);
 create_subscription(Client,Stream)
-  when is_list(Stream) ->
+  when ?is_string(Stream) ->
     create_subscription(Client,Stream,?DEFAULT_TIMEOUT);
 create_subscription(Client,Filter)
   when ?is_filter(Filter) ->
@@ -769,14 +802,14 @@ create_subscription(Client,Filter)
 			?DEFAULT_TIMEOUT).
 
 create_subscription(Client,Stream,Timeout)
-  when is_list(Stream) andalso
+  when ?is_string(Stream) andalso
        ?is_timeout(Timeout) ->
     call(Client,{send_rpc_op,{create_subscription,self()},
 		 [Stream,undefined,undefined,undefined],
 		 Timeout});
 create_subscription(Client,StartTime,StopTime)
-  when is_list(StartTime) andalso
-       is_list(StopTime) ->
+  when ?is_string(StartTime) andalso
+       ?is_string(StopTime) ->
     create_subscription(Client,?DEFAULT_STREAM,StartTime,StopTime,
 			?DEFAULT_TIMEOUT);
 create_subscription(Client,Filter,Timeout)
@@ -784,28 +817,28 @@ create_subscription(Client,Filter,Timeout)
        ?is_timeout(Timeout) ->
     create_subscription(Client,?DEFAULT_STREAM,Filter,Timeout);
 create_subscription(Client,Stream,Filter)
-  when is_list(Stream) andalso
+  when ?is_string(Stream) andalso
        ?is_filter(Filter) ->
     create_subscription(Client,Stream,Filter,?DEFAULT_TIMEOUT).
 
 create_subscription(Client,StartTime,StopTime,Timeout)
-  when is_list(StartTime) andalso
-       is_list(StopTime) andalso
+  when ?is_string(StartTime) andalso
+       ?is_string(StopTime) andalso
        ?is_timeout(Timeout) ->
     create_subscription(Client,?DEFAULT_STREAM,StartTime,StopTime,Timeout);
 create_subscription(Client,Stream,StartTime,StopTime)
-  when is_list(Stream) andalso
-       is_list(StartTime) andalso
-       is_list(StopTime) ->
+  when ?is_string(Stream) andalso
+       ?is_string(StartTime) andalso
+       ?is_string(StopTime) ->
     create_subscription(Client,Stream,StartTime,StopTime,?DEFAULT_TIMEOUT);
 create_subscription(Client,Filter,StartTime,StopTime)
   when ?is_filter(Filter) andalso
-       is_list(StartTime) andalso
-       is_list(StopTime) ->
+       ?is_string(StartTime) andalso
+       ?is_string(StopTime) ->
     create_subscription(Client,?DEFAULT_STREAM,Filter,
 			StartTime,StopTime,?DEFAULT_TIMEOUT);
 create_subscription(Client,Stream,Filter,Timeout)
-  when is_list(Stream) andalso
+  when ?is_string(Stream) andalso
        ?is_filter(Filter) andalso
        ?is_timeout(Timeout) ->
     call(Client,{send_rpc_op,{create_subscription,self()},
@@ -813,18 +846,18 @@ create_subscription(Client,Stream,Filter,Timeout)
 		 Timeout}).
 
 create_subscription(Client,Stream,StartTime,StopTime,Timeout)
-  when is_list(Stream) andalso
-       is_list(StartTime) andalso
-       is_list(StopTime) andalso
+  when ?is_string(Stream) andalso
+       ?is_string(StartTime) andalso
+       ?is_string(StopTime) andalso
        ?is_timeout(Timeout) ->
     call(Client,{send_rpc_op,{create_subscription,self()},
 		 [Stream,undefined,StartTime,StopTime],
 		 Timeout});
 create_subscription(Client,Stream,Filter,StartTime,StopTime)
-  when is_list(Stream) andalso
+  when ?is_string(Stream) andalso
        ?is_filter(Filter) andalso
-       is_list(StartTime) andalso
-       is_list(StopTime) ->
+       ?is_string(StartTime) andalso
+       ?is_string(StopTime) ->
     create_subscription(Client,Stream,Filter,StartTime,StopTime,?DEFAULT_TIMEOUT).
 
 %%----------------------------------------------------------------------
@@ -832,7 +865,7 @@ create_subscription(Client,Stream,Filter,StartTime,StopTime)
 				 Result when
       Client :: client(),
       Stream :: stream_name(),
-      Filter :: simple_xml(),
+      Filter :: simple_xml() | [simple_xml()],
       StartTime :: xs_datetime(),
       StopTime :: xs_datetime(),
       Timeout :: timeout(),
@@ -855,8 +888,7 @@ create_subscription(Client,Stream,Filter,StartTime,StopTime)
 %%   possible events is of interest.  The format of this parameter is
 %%   the same as that of the filter parameter in the NETCONF protocol
 %%   operations.  If not present, all events not precluded by other
-%%   parameters will be sent.  See section 3.6 for more information on
-%%   filters.</dd>
+%%   parameters will be sent.</dd>
 %%
 %%   <dt>StartTime:</dt>
 %%   <dd>An optional parameter used to trigger the replay feature and
@@ -1097,10 +1129,14 @@ handle_msg({Ref,timeout},
     ct_gen_conn:return(Caller,{error,{hello_session_failed,timeout}}),
     {stop,State#state{hello_status={error,timeout}}};
 handle_msg({Ref,timeout},#state{pending=Pending} = State) ->
-    {value,#pending{caller=Caller},Pending1} =
+    {value,#pending{op=Op,caller=Caller},Pending1} =
 	lists:keytake(Ref,#pending.ref,Pending),
     ct_gen_conn:return(Caller,{error,timeout}),
-    {noreply,State#state{pending=Pending1}}.
+    R = case Op of
+	    close_session -> stop;
+	    _ -> noreply
+	end,
+    {R,State#state{pending=Pending1}}.
 
 %% @private
 %% Called by ct_util_server to close registered connections before terminate.
@@ -1164,13 +1200,11 @@ call(Client, Msg, Timeout, WaitStop) ->
 get_handle(Client) when is_pid(Client) ->
     {ok,Client};
 get_handle(Client) ->
-    case ct_util:get_connections(Client, ?MODULE) of
-	{ok,[{Pid,_}]} ->
+    case ct_util:get_connection(Client, ?MODULE) of
+	{ok,{Pid,_}} ->
 	    {ok,Pid};
-	{ok,[]} ->
+	{error,no_registered_connection} ->
 	    {error,{no_connection_found,Client}};
-	{ok,Conns} ->
-	    {error,{multiple_connections_found,Client,Conns}};
 	Error ->
 	    Error
     end.
@@ -1243,8 +1277,10 @@ filter(undefined) ->
     [];
 filter({xpath,Filter}) when ?is_string(Filter) ->
     [{filter,[{type,"xpath"},{select, Filter}],[]}];
+filter(Filter) when is_list(Filter) ->
+    [{filter,[{type,"subtree"}],Filter}];
 filter(Filter) ->
-    [{filter,[{type,"subtree"}],[Filter]}].
+    filter([Filter]).
 
 maybe_element(_,undefined) ->
     [];
@@ -1302,7 +1338,8 @@ handle_data(NewData,#state{connection=Connection,buff=Buff} = State) ->
 	    decode(Simple,State#state{buff=Rest});
 	{fatal_error,_Loc,Reason,_EndTags,_EventState} ->
 	    ?error(Connection#connection.name,[{parse_error,Reason},
-					       {data,Data}]),
+					       {buffer,Buff},
+					       {new_data,NewData}]),
 	    case Reason of
 		{could_not_fetch_data,Msg} ->
 		    handle_msg(Msg,State#state{buff = <<>>});

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2005-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -175,10 +175,6 @@ chk_temp_alloc() ->
 	    %% Verify that we havn't got anything allocated by temp_alloc
 	    lists:foreach(
 	      fun ({instance, _, TI}) ->
-		      ?line {value, {sbmbcs, SBMBCInfo}}
-			  = lists:keysearch(sbmbcs, 1, TI),
-		      ?line {value, {blocks, 0, _, _}}
-			  = lists:keysearch(blocks, 1, SBMBCInfo),
 		      ?line {value, {mbcs, MBCInfo}}
 			  = lists:keysearch(mbcs, 1, TI),
 		      ?line {value, {blocks, 0, _, _}}

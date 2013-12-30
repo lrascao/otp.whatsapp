@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2003-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -62,17 +62,17 @@ entities([], []) ->
 	    ?d("entities -> converted config: ~n~p", [Conf]),
 	    [{agent, Conf}]
     end;
-entities([], E) ->
+entities([], Acc) ->
     ?d("entities -> done", []),
-    lists:reverse(E);
-entities([ET|ETs], E) ->
+    lists:reverse(Acc);
+entities([Ent|Ents], Acc) ->
     ?d("entities -> entry with"
-       "~n   ET: ~p", [ET]),
-    case application:get_env(snmp, ET) of
+       "~n   Ent: ~p", [Ent]),
+    case application:get_env(snmp, Ent) of
 	{ok, Conf} ->
-	    entities(ETs, [{ET, Conf}|E]);
+	    entities(Ents, [{Ent, Conf}|Acc]);
 	_ ->
-	    entities(ETs, E)
+	    entities(Ents, Acc)
     end.
 	
 start_entities(_Type, []) ->

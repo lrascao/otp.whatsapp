@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2013. All Rights Reserved.
  * 
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -60,7 +60,7 @@
 #include <dirent.h>
 #include <termios.h>
 #include <time.h>
-#ifndef NO_SYSLOG
+#ifdef HAVE_SYSLOG_H
 #  include <syslog.h>
 #endif
 #ifdef HAVE_PTY_H
@@ -197,8 +197,9 @@ static char* outbuf_in;
 #endif
 
 
-#ifdef NO_SYSLOG
+#ifndef HAVE_SYSLOG_H
 #    define OPEN_SYSLOG() ((void) 0)
+#    define LOG_ERR NULL
 #else
 #    define OPEN_SYSLOG() openlog(simple_basename(program_name),   \
                                   LOG_PID|LOG_CONS|LOG_NOWAIT,LOG_USER)
@@ -415,7 +416,7 @@ int main(int argc, char **argv)
     }
 #endif
 
-#ifndef NO_SYSLOG
+#ifdef HAVE_SYSLOG_H
     /* Before fiddling with file descriptors we make sure syslog is turned off
        or "closed". In the single case where we might want it again, 
        we will open it again instead. Would not want syslog to
@@ -682,7 +683,7 @@ static void pass_on(pid_t childpid)
 		    }
 		}
 
-		if (!got_some && wfd && buf[0] == '\022') {
+		if (!got_some && wfd && buf[0] == '\014') {
 		    char wbuf[30];
 		    int wlen = sn_printf(wbuf,sizeof(wbuf),"[run_erl v%u-%u]\n",
 					 RUN_ERL_HI_VER, RUN_ERL_LO_VER);
@@ -1142,6 +1143,14 @@ static void daemon_init(void)
 	sf_close(i);
     }
 
+    /* Necessary on some platforms */
+
+    open("/dev/null", O_RDONLY); /* Order is important! */
+    open("/dev/null", O_WRONLY);
+    open("/dev/null", O_WRONLY);
+
+    errno = 0;  /* if set by open */
+
     OPEN_SYSLOG();
     run_daemon = 1;
 }
@@ -1155,7 +1164,7 @@ static void error_logf(int priority, int line, const char *format, ...)
     va_list args;
     va_start(args, format);
 
-#ifndef NO_SYSLOG
+#ifdef HAVE_SYSLOG_H
     if (run_daemon) {
 	vsyslog(priority,format,args);
     }

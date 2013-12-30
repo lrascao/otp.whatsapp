@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -73,6 +73,9 @@ end_per_group(_, Config) ->
 
 %%--------------------------------------------------------------------
 init_per_testcase(_TestCase, Config) ->
+    %% To make sure we start clean as it is not certain that
+    %% end_per_testcase will be run!
+    ssh:stop(),
     ssh:start(),
     Config.
 
@@ -82,8 +85,8 @@ end_per_testcase(_Config) ->
 %%--------------------------------------------------------------------
 %% Test Cases --------------------------------------------------------
 %%--------------------------------------------------------------------
-simple_exec(doc) ->
-    ["Simple openssh connectivity test for ssh_connection:exec"];
+simple_exec() ->
+    [{doc, "Simple openssh connectivity test for ssh_connection:exec"}].
 
 simple_exec(Config) when is_list(Config) ->
     ConnectionRef = ssh_test_lib:connect(?SSH_DEFAULT_PORT, [{silently_accept_hosts, true},
@@ -91,7 +94,6 @@ simple_exec(Config) when is_list(Config) ->
     {ok, ChannelId0} = ssh_connection:session_channel(ConnectionRef, infinity),
     success = ssh_connection:exec(ConnectionRef, ChannelId0,
 				  "echo testing", infinity),
-
     %% receive response to input
     receive
 	{ssh_cm, ConnectionRef, {data, ChannelId0, 0, <<"testing\n">>}} ->
@@ -113,8 +115,8 @@ simple_exec(Config) when is_list(Config) ->
     end.
 
 %%--------------------------------------------------------------------
-small_cat(doc) ->
-    ["Use 'cat' to echo small data block back to us."];
+small_cat() ->
+    [{doc, "Use 'cat' to echo small data block back to us."}].
 
 small_cat(Config) when is_list(Config) ->
     ConnectionRef = ssh_test_lib:connect(?SSH_DEFAULT_PORT, [{silently_accept_hosts, true},
@@ -146,10 +148,9 @@ small_cat(Config) when is_list(Config) ->
 	{ssh_cm, ConnectionRef,{closed, ChannelId0}} ->
 	    ok
     end.
-
 %%--------------------------------------------------------------------
-big_cat(doc) ->
-    ["Use 'cat' to echo large data block back to us."];
+big_cat() ->
+    [{doc,"Use 'cat' to echo large data block back to us."}].
 
 big_cat(Config) when is_list(Config) ->
     ConnectionRef = ssh_test_lib:connect(?SSH_DEFAULT_PORT, [{silently_accept_hosts, true},
@@ -197,47 +198,43 @@ big_cat(Config) when is_list(Config) ->
     end.
 
 %%--------------------------------------------------------------------
-send_after_exit(doc) ->
-    ["Send channel data after the channel has been closed."];
+send_after_exit() ->
+    [{doc, "Send channel data after the channel has been closed."}].
 
 send_after_exit(Config) when is_list(Config) ->
     ConnectionRef = ssh_test_lib:connect(?SSH_DEFAULT_PORT, [{silently_accept_hosts, true},
 							     {user_interaction, false}]),
     {ok, ChannelId0} = ssh_connection:session_channel(ConnectionRef, infinity),
+    Data = <<"I like spaghetti squash">>,
 
     %% Shell command "false" will exit immediately
     success = ssh_connection:exec(ConnectionRef, ChannelId0,
 				  "false", infinity),
-
-    timer:sleep(2000), %% Allow incoming eof/close/exit_status ssh messages to be processed
-
-    Data = <<"I like spaghetti squash">>,
-    case ssh_connection:send(ConnectionRef, ChannelId0, Data, 2000) of
-	{error, closed} -> ok;
-	ok ->
-	    ct:fail({expected,{error,closed}});
-	{error, timeout} ->
-	    ct:fail({expected,{error,closed}});
-	Else ->
-	    ct:fail(Else)
-    end,
-
-    %% receive close messages
     receive
 	{ssh_cm, ConnectionRef, {eof, ChannelId0}} ->
 	    ok
     end,
     receive
-	{ssh_cm, ConnectionRef, {exit_status, ChannelId0, _}} ->
+	{ssh_cm, ConnectionRef, {exit_status, ChannelId0, _ExitStatus}} ->
 	    ok
     end,
     receive
 	{ssh_cm, ConnectionRef,{closed, ChannelId0}} ->
 	    ok
+    end,
+    case ssh_connection:send(ConnectionRef, ChannelId0, Data, 2000) of
+	{error, closed} -> ok;
+	ok ->
+	    ct:fail({expected,{error,closed}, {got, ok}});
+	{error, timeout} ->
+	    ct:fail({expected,{error,closed}, {got, {error, timeout}}});
+	Else ->
+	    ct:fail(Else)
     end.
+
 %%--------------------------------------------------------------------
-interrupted_send(doc) ->
-    ["Use a subsystem that echos n char and then sends eof to cause a channel exit partway through a large send."];
+interrupted_send() ->
+    [{doc, "Use a subsystem that echos n char and then sends eof to cause a channel exit partway through a large send."}].
 
 interrupted_send(Config) when is_list(Config) ->
     PrivDir = ?config(priv_dir, Config),

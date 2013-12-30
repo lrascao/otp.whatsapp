@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -78,7 +78,7 @@ push(Bs, #ieval{level=Le,module=Mod,function=Name,
 pop() ->
     case get(trace_stack) of
 	false -> ignore;
-	_ -> % all ¦ no_tail
+	_ -> % all | no_tail
 	    case get(?STACK) of
 		[_Entry|Entries] ->
 		    put(?STACK, Entries);

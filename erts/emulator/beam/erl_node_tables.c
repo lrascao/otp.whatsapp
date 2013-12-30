@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2001-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -1371,6 +1371,7 @@ setup_reference_table(void)
     /* Insert all ports */
     max = erts_ptab_max(&erts_port);
     for (i = 0; i < max; i++) {
+	ErlOffHeap *ohp;
 	erts_aint32_t state;
 	Port *prt;
 
@@ -1389,8 +1390,9 @@ setup_reference_table(void)
 	if (ERTS_P_MONITORS(prt))
 	    insert_monitors(ERTS_P_MONITORS(prt), prt->common.id);
 	/* Insert port data */
-	for(hfp = prt->bp; hfp; hfp = hfp->next)
-	    insert_offheap(&(hfp->off_heap), HEAP_REF, prt->common.id);
+	ohp = erts_port_data_offheap(prt);
+	if (ohp)
+	    insert_offheap(ohp, HEAP_REF, prt->common.id);
 	/* Insert controller */
 	if (prt->dist_entry)
 	    insert_dist_entry(prt->dist_entry,

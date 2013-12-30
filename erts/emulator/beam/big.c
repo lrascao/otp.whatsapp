@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -150,14 +150,14 @@
 #define D2GTE(a1,a0,b1,b0) (!D2LT(a1,a0,b1,b0))
 #define D2LTE(a1,a0,b1,b0) (!D2GT(a1,a0,b1,b0))
 
-// Add (A+B),  A=(a1B+a0) B=(b1B+b0)
+/* Add (A+B),  A=(a1B+a0) B=(b1B+b0) */
 #define D2ADD(a1,a0,b1,b0,c1,c0) do { \
 	ErtsDigit __ci = 0;	      \
 	DSUM(a0,b0,__ci,c0); \
 	DSUMc(a1,b1,__ci,c1);			\
     } while(0)
 
-// Subtract (A-B), A=(a1B+a0), B=(b1B+b0)  (A>=B)
+/* Subtract (A-B), A=(a1B+a0), B=(b1B+b0)  (A>=B) */
 #define D2SUB(a1,a0,b1,b0,c1,c0) do { \
 	ErtsDigit __bi;		      \
 	DSUB(a0,b0,__bi,c0);	      \
@@ -1325,9 +1325,9 @@ static dsize_t I_lshift(ErtsDigit* x, dsize_t xl, Sint y,
 	return 1;
     }
     else {
-	SWord ay = (y < 0) ? -y : y;
-	int bw = ay / D_EXP;
-	int sw = ay % D_EXP;
+	Uint ay = (y < 0) ? -y : y;
+	Uint bw = ay / D_EXP;
+	Uint sw = ay % D_EXP;
 	dsize_t rl;
 	ErtsDigit a1=0;
 	ErtsDigit a0=0;
@@ -1337,7 +1337,7 @@ static dsize_t I_lshift(ErtsDigit* x, dsize_t xl, Sint y,
 
 	    while(bw--)
 		*r++ = 0;
-	    if (sw) {  // NOTE! x >> 32 is not = 0!
+	    if (sw) {  /* NOTE! x >> 32 is not = 0! */
 		while(xl--) {
 		    a0 = (*x << sw) | a1;
 		    a1 = (*x >> (D_EXP - sw));
@@ -1368,7 +1368,7 @@ static dsize_t I_lshift(ErtsDigit* x, dsize_t xl, Sint y,
 	    }
 
 	    if (sign) {
-		int zl = bw;
+		Uint zl = bw;
 		ErtsDigit* z = x;
 
 		while(zl--) {
@@ -1384,7 +1384,7 @@ static dsize_t I_lshift(ErtsDigit* x, dsize_t xl, Sint y,
 	    x += (xl-1);
 	    r += (rl-1);
 	    xl -= bw;
-	    if (sw) { // NOTE! x >> 32 is not = 0!
+	    if (sw) { /* NOTE! x >> 32 is not = 0! */
 		while(xl--) {
 		    a1 = (*x >> sw) | a0;
 		    a0 = (*x << (D_EXP-sw));
@@ -2468,7 +2468,7 @@ int term_equals_2pow32(Eterm x)
 	if (!is_big(x))
 	    return 0;
 	bp = big_val(x);
-#if D_EXP == 16   // 16 bit platfrom not really supported!!!
+#if D_EXP == 16   /* 16 bit platfrom not really supported!!! */
 	return (BIG_SIZE(bp) == 3) && !BIG_DIGIT(bp,0) && !BIG_DIGIT(bp,1) && 
 	    BIG_DIGIT(bp,2) == 1;
 #elif D_EXP == 32
@@ -2528,17 +2528,18 @@ const byte d_base_exp_lookup[] = { 31, 19, 15, 13, 11, 11, 10, 9, 9, 8, 8, 8, 8,
  * end
  * How much can the characters which fit in 31 bit represent
  */
-const Uint d_base_base_lookup[] = { 2147483648, 1162261467, 1073741824,
-	1220703125, 362797056, 1977326743, 1073741824, 387420489, 1000000000,
-	214358881, 429981696, 815730721, 1475789056, 170859375, 268435456,
-	410338673, 612220032, 893871739, 1280000000, 1801088541, 113379904,
-	148035889, 191102976, 244140625, 308915776, 387420489, 481890304,
-	594823321, 729000000, 887503681, 1073741824, 1291467969, 1544804416,
-	1838265625, 60466176, 69343957, 79235168, 90224199, 102400000,
-	115856201, 130691232, 147008443, 164916224, 184528125, 205962976,
-	229345007, 254803968, 282475249, 312500000, 345025251, 380204032,
-	418195493, 459165024, 503284375, 550731776, 601692057, 656356768,
-	714924299, 777600000, 844596301, 916132832, 992436543, 1073741824 };
+const Uint d_base_base_lookup[] = { 2147483648u, 1162261467u, 1073741824u,
+	1220703125u, 362797056u, 1977326743u, 1073741824u, 387420489u,
+	1000000000u, 214358881u, 429981696u, 815730721u, 1475789056u,
+	170859375u, 268435456u, 410338673u, 612220032u, 893871739u, 1280000000u,
+	1801088541u, 113379904u, 148035889u, 191102976u, 244140625u, 308915776u,
+	387420489u, 481890304u, 594823321u, 729000000u, 887503681u, 1073741824u,
+	1291467969u, 1544804416u, 1838265625u, 60466176u, 69343957u, 79235168u,
+	90224199u, 102400000u, 115856201u, 130691232u, 147008443u, 164916224u,
+	184528125u, 205962976u, 229345007u, 254803968u, 282475249u, 312500000u,
+	345025251u, 380204032u, 418195493u, 459165024u, 503284375u, 550731776u,
+	601692057u, 656356768u, 714924299u, 777600000u, 844596301u, 916132832u,
+	992436543u, 1073741824u };
 
 Eterm erts_chars_to_integer(Process *BIF_P, char *bytes, 
 			   Uint size, const int base) {

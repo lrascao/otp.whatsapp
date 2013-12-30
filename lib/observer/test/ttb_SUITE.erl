@@ -1,7 +1,8 @@
+%%
 %% %CopyrightBegin%
 %%
 %%
-%% Copyright Ericsson AB 2002-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -57,7 +58,7 @@ init_per_testcase(Case, Config) ->
     catch error:undef -> ok
     end,
     [{watchdog, Dog}|Config].
-end_per_testcase(Case, Config) ->
+end_per_testcase(_Case, Config) ->
     %% try apply(?MODULE,Case,[cleanup,Config])
     %% catch error:undef -> ok
     %% end,
@@ -1482,12 +1483,19 @@ logic(N, M, TracingType) ->
     ?t:stop_node(ttb_helper:get_node(client)),
     timer:sleep(2500),
     ?line {ok,_ClientNode} = ?t:start_node(client,slave,[]),
+    ct:log("client started",[]),
     ?line ok = ttb_helper:c(code, add_paths, [code:get_path()]),
+    ct:log("paths added",[]),
     ?line ttb_helper:c(client, init, []),
+    ct:log("client initiated",[]),
     ?line helper_msgs(N, TracingType),
+    ct:log("helper msgs sent and flushed",[]),
     ?line {_, D} = ttb:stop([return_fetch_dir]),
+    ct:log("stopped ~p",[D]),
     ?line ttb:format(D, [{out, ?OUTPUT}, {handler, ret_caller_call_handler2()}]),
+    ct:log("formatted ~p",[{D,?OUTPUT}]),
     ?line {ok, Ret} = file:consult(?OUTPUT),
+    ct:log("consulted: ~p",[Ret]),
     ?line M = length(Ret).
 
 begin_trace_with_resume(ServerNode, ClientNode, Dest) ->

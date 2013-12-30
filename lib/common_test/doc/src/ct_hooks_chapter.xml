@@ -192,12 +192,12 @@
     <section>
       <title>External configuration data and Logging</title>
       <p>It's possible in the CTH to read configuration data values
-	by calling <c><seealso marker="ct#get_config-1">ct:get_config/1/2/3</seealso></c> (as explained in the
+	by calling <seealso marker="ct#get_config-1"><c>ct:get_config/1/2/3</c></seealso> (as explained in the
 	<seealso marker="config_file_chapter#require_config_data">
 	  External configuration data</seealso>
 	chapter). The config variables in question must, as always, first have been
 	<c>required</c> by means of a suite-, group-, or test case info function,
-	or the <c><seealso marker="ct#require-1">ct:require/1/2</seealso></c> function. Note that the latter can also be used
+	or the <seealso marker="ct#require-1"><c>ct:require/1/2</c></seealso> function. Note that the latter can also be used
 	in CT hook functions.</p>
       <p>The CT hook functions may call any of the logging functions available
 	in the <c>ct</c> interface to print information to the log files, or to
@@ -252,13 +252,13 @@
     {ok, Handle} -&gt;
       {[{db_handle, Handle} | Config], CTHState#state{ handle = Handle }}
   end.</code>
-  <note>If using multiple CTHs, the first part of the return tuple will be
+  <note><p>If using multiple CTHs, the first part of the return tuple will be
   used as input for the next CTH. So in the case above the next CTH might
   get <c>{fail,Reason}</c> as the second parameter. If you have many CTHs
   which interact, it might be a good idea to not let each CTH return
   <c>fail</c> or <c>skip</c>. Instead return that an action should be taken
   through the <c>Config</c> list and implement a CTH which at the end takes
-  the correct action. </note>
+  the correct action.</p></note>
 	
     </section>
     
@@ -301,9 +301,9 @@ post_end_per_testcase(_TC, Config, Return, CTHState) -&gt;
   %% Do nothing if tc does not crash.
   {Return, CTHState}.</code>
 
-      <note>Recovering from a testcase failure using CTHs should only be done as
+      <note><p>Recovering from a testcase failure using CTHs should only be done as
 	a last resort. If used wrongly it could become very difficult to 
-	determine which tests pass or fail in a test run</note>
+	determine which tests pass or fail in a test run</p></note>
   
     </section>
 
@@ -320,6 +320,34 @@ post_end_per_testcase(_TC, Config, Return, CTHState) -&gt;
       </p>
     </section>
 
+  </section>
+
+  <marker id="synchronizing"/>
+  <section>
+    <title>Synchronizing external user applications with Common Test</title>
+    <p>CTHs can be used to synchronize test runs with external user applications.
+    The init function may e.g. start and/or communicate with an application that
+    has the purpose of preparing the SUT for an upcoming test run, or maybe
+    initialize a database for saving test data to during the test run. The
+    terminate function may similarly order such an application to reset the SUT
+    after the test run, and/or tell the application to finish active sessions
+    and terminate.
+    Any system error- or progress reports generated during the init- or
+    termination stage will be saved in the 
+    <seealso marker="run_test_chapter#pre_post_test_io_log">Pre-
+    and post test I/O log</seealso>. (This is also true for any printouts made
+    with <c>ct:log/2</c> and <c>ct:pal/2</c>).</p>
+    <p>In order to ensure that Common Test doesn't start executing tests, or
+    closes its log files and shuts down, before the external application
+    is ready for it, Common Test may be synchronized with the application. 
+    During startup and shutdown, Common Test can be suspended, simply by
+    having a CTH evaluate a <c>receive</c> expression in the init- or terminate
+    function. The macros <c>?CT_HOOK_INIT_PROCESS</c> (the process executing the hook
+    init function) and <c>?CT_HOOK_TERMINATE_PROCESS</c> (the process executing
+    the hook terminate function), each specifies the name of the correct Common Test
+    process to send a message to in order to return from the <c>receive</c>.
+    These macros are defined in <c>ct.hrl</c>.
+    </p>
   </section>
 
   <marker id="example"/>

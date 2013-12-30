@@ -76,11 +76,6 @@
 
 allocator	SYSTEM		true		sys_alloc
 
-allocator	SBMBC		true		sbmbc_alloc
-+if halfword
-allocator	SBMBC_LOW	true		sbmbc_low_alloc
-+endif
-
 +if smp
 
 allocator	TEMPORARY	true		temp_alloc
@@ -146,7 +141,6 @@ class	SYSTEM		system_data
 #
 #	<TYPE>		<ALLOCATOR>	<CLASS>		<DESCRIPTION>
 
-type	SBMBC		SBMBC		SYSTEM		small_block_mbc
 type	PROC		FIXED_SIZE	PROCESSES	proc
 type	PORT		DRIVER		SYSTEM		port
 type	ATOM		LONG_LIVED	ATOM		atom_entry
@@ -156,6 +150,7 @@ type	LINK_LH		STANDARD	PROCESSES	link_lh
 type	SUSPEND_MON	STANDARD	PROCESSES	suspend_monitor
 type	PEND_SUSPEND	SHORT_LIVED	PROCESSES	pending_suspend
 type	PROC_LIST	SHORT_LIVED	PROCESSES	proc_list
+type	EXTRA_ROOT	SHORT_LIVED	PROCESSES	extra_root
 type	FUN_ENTRY	LONG_LIVED	CODE		fun_entry
 type	ATOM_TXT	LONG_LIVED	ATOM		atom_text
 type 	BEAM_REGISTER	EHEAP		PROCESSES	beam_register
@@ -272,6 +267,7 @@ type	CODE_IX_LOCK_Q  SHORT_LIVED	SYSTEM		code_ix_lock_q
 type	PROC_INTERVAL	LONG_LIVED	SYSTEM		process_interval
 type    BUSY_CALLER_TAB	SHORT_LIVED	SYSTEM		busy_caller_table
 type    BUSY_CALLER	SHORT_LIVED	SYSTEM		busy_caller
+type	PORT_DATA_HEAP	STANDARD	SYSTEM		port_data_heap
 
 +if threads_no_smp
 # Need thread safe allocs, but std_alloc and fix_alloc are not;
@@ -350,7 +346,6 @@ type	SSB		SHORT_LIVED	PROCESSES	ssb
 
 +if halfword
 
-type	SBMBC_LOW	SBMBC_LOW	SYSTEM		small_block_mbc_low
 type	DDLL_PROCESS	STANDARD_LOW	SYSTEM		ddll_processes
 type	MONITOR_LH	STANDARD_LOW	PROCESSES	monitor_lh
 type	NLINK_LH	STANDARD_LOW	PROCESSES	nlink_lh
@@ -365,6 +360,7 @@ type	MONITOR_SH	STANDARD_LOW	PROCESSES	monitor_sh
 type	NLINK_SH	STANDARD_LOW	PROCESSES	nlink_sh
 type	AINFO_REQ	STANDARD_LOW	SYSTEM		alloc_info_request
 type	SCHED_WTIME_REQ	STANDARD_LOW	SYSTEM		sched_wall_time_request
+type	GC_INFO_REQ	STANDARD_LOW	SYSTEM		gc_info_request
 
 +else # "fullword"
 
@@ -382,6 +378,7 @@ type	MONITOR_SH	FIXED_SIZE	PROCESSES	monitor_sh
 type	NLINK_SH	FIXED_SIZE	PROCESSES	nlink_sh
 type	AINFO_REQ	SHORT_LIVED	SYSTEM		alloc_info_request
 type	SCHED_WTIME_REQ	SHORT_LIVED	SYSTEM		sched_wall_time_request
+type	GC_INFO_REQ	SHORT_LIVED	SYSTEM		gc_info_request
 
 +endif
 
@@ -401,6 +398,7 @@ type	POLLSET_UPDREQ	SHORT_LIVED	SYSTEM		pollset_update_req
 type	POLL_FDS	LONG_LIVED	SYSTEM		poll_fds
 type	POLL_RES_EVS	LONG_LIVED	SYSTEM		poll_result_events
 type	FD_STATUS	LONG_LIVED	SYSTEM		fd_status
+type	SELECT_FDS	LONG_LIVED	SYSTEM		select_fds
 
 +if unix
 

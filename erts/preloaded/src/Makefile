@@ -1,7 +1,7 @@
 # 
 # %CopyrightBegin%
 # 
-# Copyright Ericsson AB 2008-2012. All Rights Reserved.
+# Copyright Ericsson AB 2008-2013. All Rights Reserved.
 # 
 # The contents of this file are subject to the Erlang Public License,
 # Version 1.1, (the "License"); you may not use this file except in
@@ -32,7 +32,7 @@ STATIC_EBIN=../ebin
 include $(ERL_TOP)/erts/vsn.mk
 include $(ERL_TOP)/lib/kernel/vsn.mk
 
-PRE_LOADED_MODULES = \
+PRE_LOADED_ERL_MODULES = \
 	erl_prim_loader \
 	init \
 	prim_file \
@@ -43,19 +43,32 @@ PRE_LOADED_MODULES = \
 	erlang \
 	erts_internal
 
+PRE_LOADED_BEAM_MODULES = \
+	prim_eval
+
+PRE_LOADED_MODULES = $(PRE_LOADED_ERL_MODULES) $(PRE_LOADED_BEAM_MODULES)
+
 RELSYSDIR = $(RELEASE_PATH)/lib/erts-$(VSN)
 # not $(RELEASE_PATH)/erts-$(VSN)/preloaded
 
-ERL_FILES= $(PRE_LOADED_MODULES:%=%.erl) 
+ERL_FILES= $(PRE_LOADED_ERL_MODULES:%=%.erl)
+BEAM_FILES= $(PRE_LOADED_BEAM_MODULES:%=%.S)
+STUBS_FILES= $(PRE_LOADED_BEAM_MODULES:%=%.erl)
 
-TARGET_FILES = $(PRE_LOADED_MODULES:%=$(EBIN)/%.$(EMULATOR))
+TARGET_FILES = $(PRE_LOADED_MODULES:%=$(EBIN)/%.$(EMULATOR)) \
+    $(APP_TARGET)
 STATIC_TARGET_FILES = $(PRE_LOADED_MODULES:%=$(STATIC_EBIN)/%.$(EMULATOR))
+
+APP_FILE= erts.app
+APP_SRC= $(APP_FILE).src
+APP_TARGET= $(STATIC_EBIN)/$(APP_FILE)
+
 
 KERNEL_SRC=$(ERL_TOP)/lib/kernel/src
 KERNEL_INCLUDE=$(ERL_TOP)/lib/kernel/include
 STDLIB_INCLUDE=$(ERL_TOP)/lib/stdlib/include
 
-ERL_COMPILE_FLAGS += +warn_obsolete_guard -I$(KERNEL_SRC) -I$(KERNEL_INCLUDE)
+ERL_COMPILE_FLAGS += +warn_obsolete_guard +debug_info -I$(KERNEL_SRC) -I$(KERNEL_INCLUDE)
 
 debug opt: $(TARGET_FILES) 
 
@@ -65,20 +78,36 @@ clean:
 copy:
 	cp *.beam $(STATIC_EBIN)
 
+$(APP_TARGET): $(APP_SRC) $(ERL_TOP)/erts/vsn.mk
+	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
+
 
 include $(ERL_TOP)/make/otp_release_targets.mk
 
-release_spec: 
+release_spec: $(APP_TARGET)
 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
-	$(INSTALL_DATA) $(ERL_FILES) "$(RELSYSDIR)/src"
+	$(INSTALL_DATA) $(ERL_FILES) $(BEAM_FILES) $(STUBS_FILES) "$(RELSYSDIR)/src"
 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
-	$(INSTALL_DATA) $(STATIC_TARGET_FILES) "$(RELSYSDIR)/ebin"
+	$(INSTALL_DATA) $(STATIC_TARGET_FILES) $(APP_TARGET) "$(RELSYSDIR)/ebin"
 
 release_docs_spec:
 
 
 list_preloaded:
 	@echo $(PRE_LOADED_MODULES)
+
+#
+# Combine a BEAM assembly script file a stub Erlang file into a BEAM file.
+# See add_abstract_chunk script.
+#
+
+prim_eval.abstr: prim_eval.erl
+	$(V_ERLC) $(ERL_COMPILE_FLAGS) -o$(dir $@) +dabstr $<
+
+prim_eval.beam: prim_eval.S prim_eval.abstr
+	$(gen_verbose)
+	$(V_at)$(ERLC) $(ERL_COMPILE_FLAGS) $<
+	$(V_at)escript add_abstract_code $@ prim_eval.abstr || (rm $@; exit 1)
 
 # Include dependencies -- list below added by PaN
 $(EBIN)/erl_prim_loader.beam: $(KERNEL_SRC)/inet_boot.hrl $(KERNEL_INCLUDE)/file.hrl

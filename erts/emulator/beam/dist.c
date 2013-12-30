@@ -353,7 +353,7 @@ static void doit_link_net_exits_sub(ErtsLink *sublnk, void *vlnecp)
 static void doit_link_net_exits(ErtsLink *lnk, void *vnecp)
 {
     LinkNetExitsContext lnec = {(NetExitsContext *) vnecp, lnk};
-    ASSERT(lnk->type == LINK_PID)
+    ASSERT(lnk->type == LINK_PID);
     erts_sweep_links(ERTS_LINK_ROOT(lnk), &doit_link_net_exits_sub, (void *) &lnec);
 #ifdef DEBUG
     ERTS_LINK_ROOT(lnk) = NULL;
@@ -369,7 +369,7 @@ static void doit_node_link_net_exits(ErtsLink *lnk, void *vnecp)
     Process *rp;
     ErtsLink *rlnk;
     Uint i,n;
-    ASSERT(lnk->type == LINK_NODE)
+    ASSERT(lnk->type == LINK_NODE);
     if (is_internal_pid(lnk->pid)) {
 	ErtsProcLocks rp_locks = ERTS_PROC_LOCK_LINK;
 	rp = erts_pid2proc(NULL, 0, lnk->pid, rp_locks);
@@ -455,7 +455,7 @@ int erts_do_net_exits(DistEntry *dep, Eterm reason)
 	Eterm nd_reason = (reason == am_no_network
 			   ? am_no_network
 			   : am_net_kernel_terminated);
-	erts_smp_rwmtx_rwlock(&erts_dist_table_rwmtx);
+	erts_smp_rwmtx_rlock(&erts_dist_table_rwmtx);
 
 	for (tdep = erts_hidden_dist_entries; tdep; tdep = tdep->next)
 	    no_dist_port++;
@@ -464,7 +464,7 @@ int erts_do_net_exits(DistEntry *dep, Eterm reason)
 
 	/* KILL all port controllers */
 	if (no_dist_port == 0)
-	    erts_smp_rwmtx_rwunlock(&erts_dist_table_rwmtx);
+	    erts_smp_rwmtx_runlock(&erts_dist_table_rwmtx);
 	else {
 	    Eterm def_buf[128];
 	    int i = 0;
@@ -483,7 +483,7 @@ int erts_do_net_exits(DistEntry *dep, Eterm reason)
 		ASSERT(is_internal_port(tdep->cid));
 		dist_port[i++] = tdep->cid;
 	    }
-	    erts_smp_rwmtx_rwunlock(&erts_dist_table_rwmtx);
+	    erts_smp_rwmtx_runlock(&erts_dist_table_rwmtx);
 
 	    for (i = 0; i < no_dist_port; i++) {
 		Port *prt = erts_port_lookup(dist_port[i],
@@ -1509,11 +1509,11 @@ int erts_net_message(Port *prt,
 	    break;
 	}
 	rp = erts_pid2proc(NULL, 0, mon->pid, rp_locks);
+
+	erts_destroy_monitor(mon);
 	if (rp == NULL) {
 	    break;
 	}
-
-	erts_destroy_monitor(mon);
 
 	mon = erts_remove_monitor(&ERTS_P_MONITORS(rp), ref);
 
@@ -2560,9 +2560,9 @@ BIF_RETTYPE setnode_2(BIF_ALIST_2)
 	erts_smp_proc_unlock(net_kernel, ERTS_PROC_LOCK_MAIN);
 
 #ifdef DEBUG
-    erts_smp_rwmtx_rwlock(&erts_dist_table_rwmtx);
+    erts_smp_rwmtx_rlock(&erts_dist_table_rwmtx);
     ASSERT(!erts_visible_dist_entries && !erts_hidden_dist_entries);
-    erts_smp_rwmtx_rwunlock(&erts_dist_table_rwmtx);
+    erts_smp_rwmtx_runlock(&erts_dist_table_rwmtx);
 #endif
 
     erts_smp_proc_unlock(BIF_P, ERTS_PROC_LOCK_MAIN);
@@ -2912,7 +2912,7 @@ BIF_RETTYPE nodes_1(BIF_ALIST_1)
 
     length = 0;
 
-    erts_smp_rwmtx_rwlock(&erts_dist_table_rwmtx);
+    erts_smp_rwmtx_rlock(&erts_dist_table_rwmtx);
 
     ASSERT(erts_no_of_not_connected_dist_entries >= 0);
     ASSERT(erts_no_of_hidden_dist_entries >= 0);
@@ -2929,7 +2929,7 @@ BIF_RETTYPE nodes_1(BIF_ALIST_1)
     result = NIL;
 
     if (length == 0) {
-	erts_smp_rwmtx_rwunlock(&erts_dist_table_rwmtx);
+	erts_smp_rwmtx_runlock(&erts_dist_table_rwmtx);
 	goto done;
     }
 
@@ -2958,7 +2958,7 @@ BIF_RETTYPE nodes_1(BIF_ALIST_1)
 	hp += 2;
     }
     ASSERT(endp == hp);
-    erts_smp_rwmtx_rwunlock(&erts_dist_table_rwmtx);
+    erts_smp_rwmtx_runlock(&erts_dist_table_rwmtx);
 
 done:
     UnUseTmpHeap(2,BIF_P);

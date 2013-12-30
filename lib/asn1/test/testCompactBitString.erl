@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2001-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -150,4 +150,6 @@ roundtrip(Type, Val1, Val2) ->
 roundtrip_1(Mod, Type, In, Out) ->
     {ok,Encoded} = Mod:encode(Type, In),
     {ok,Out} = Mod:decode(Type, Encoded),
+    %% Test that compact BIT STRINGs can be encoded.
+    {ok,Encoded} = Mod:encode(Type, Out),
     ok.

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -30,6 +30,147 @@
   </header>
   <p>This document describes the changes made to the Tools application.</p>
 
+<section><title>Tools 2.6.13</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Erlang-specific compilation error regexp is added in
+	    erlang-eunit.el. This defvar was earlier in erlang.el,
+	    but was erroneously removed in R15B02, while still used
+	    by erlang-eunit.el.</p>
+          <p>
+	    Own Id: OTP-11417 Aux Id: seq12447 </p>
+        </item>
+        <item>
+          <p>
+	    Take compiler options from beam in cover:compile_beam.
+	    Thanks to Péter Gömöri.</p>
+          <p>
+	    Own Id: OTP-11439</p>
+        </item>
+        <item>
+          <p>
+	    Silence warnings (Thanks to Anthony Ramine)</p>
+          <p>
+	    Own Id: OTP-11517</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Add iodata, nonempty_string to built-in type highlighting
+	    for emacs. Thanks to Paul Oliver.</p>
+          <p>
+	    Own Id: OTP-11394</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Tools 2.6.12</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Remove trailing spaces in Emacs templates. Thanks to
+	    Roberto Aloi.</p>
+          <p>
+	    Own Id: OTP-11198</p>
+        </item>
+        <item>
+          <p>
+	    Fixed the Emacs erlang-mode to accommodate the coding
+	    style where lists written across several lines have each
+	    line starting with a comma. Thanks to Magnus Henoch.</p>
+          <p>
+	    Own Id: OTP-11242</p>
+        </item>
+        <item>
+          <p>
+	    Make the Emacs Erlang mode TRAMP-aware when compiling.
+	    Thanks to Tomas Abrahamsson.</p>
+          <p>
+	    Own Id: OTP-11270</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Tools 2.6.11</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    When cover:stop(Node) was called on a non-existing node,
+	    a process waiting for cover data from the node would hang
+	    forever. This has been corrected.</p>
+          <p>
+	    Own Id: OTP-10979</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Make cover smarter about finding source from beam.</p>
+          <p>
+	    In particular, search using the source path in
+	    module_info if the current heuristic fails.</p>
+          <p>
+	    Own Id: OTP-10902</p>
+        </item>
+        <item>
+          <p>
+	    Remove Flymake dependency in erlang-pkg.el. Thanks to
+	    Magnus Henoch.</p>
+          <p>
+	    Own Id: OTP-10930</p>
+        </item>
+        <item>
+          <p>
+	    Erlang-mode: Add autoload cookies for file extension
+	    associations. Thanks to Magnus Henoch.</p>
+          <p>
+	    Own Id: OTP-10999</p>
+        </item>
+        <item>
+	    <p> Postscript files no longer needed for the generation
+	    of PDF files have been removed. </p>
+          <p>
+	    Own Id: OTP-11016</p>
+        </item>
+        <item>
+          <p>
+	    Fix a race condition when there're several applications
+	    in apps directory. Thanks to Manuel Rubio.</p>
+          <p>
+	    Own Id: OTP-11028</p>
+        </item>
+        <item>
+          <p>
+	    New option for eprof, 'set_on_spawn'. This option was
+	    previously always on and is also the default.</p>
+          <p>
+	    Own Id: OTP-11144</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Tools 2.6.10</title>
 
     <section><title>Improvements and New Features</title>
@@ -37,7 +178,7 @@
         <item>
           <p>
 	    Fix a bug in cover when used with no_auto_import. Thanks
-	    to Jos� Valim.</p>
+	    to José Valim.</p>
           <p>
 	    Own Id: OTP-10778</p>
         </item>
@@ -72,7 +213,7 @@
         <item>
           <p>
 	    Add separate face for exported functions (Thanks to
-	    Thomas J�rvstrand)</p>
+	    Thomas Järvstrand)</p>
           <p>
 	    Own Id: OTP-10637</p>
         </item>
@@ -157,7 +298,7 @@
         </item>
         <item>
           <p>
-	    Documentation fixes (Thanks to Ricardo Catalinas Jim�nez
+	    Documentation fixes (Thanks to Ricardo Catalinas Jiménez
 	    )</p>
           <p>
 	    Own Id: OTP-10121</p>

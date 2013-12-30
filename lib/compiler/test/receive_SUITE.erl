@@ -23,7 +23,8 @@
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
 	 init_per_group/2,end_per_group/2,
 	 init_per_testcase/2,end_per_testcase/2,
-	 export/1,recv/1,coverage/1,otp_7980/1,ref_opt/1]).
+	 export/1,recv/1,coverage/1,otp_7980/1,ref_opt/1,
+	 wait/1]).
 
 -include_lib("test_server/include/test_server.hrl").
 
@@ -44,7 +45,7 @@ all() ->
 
 groups() -> 
     [{p,test_lib:parallel(),
-      [recv,coverage,otp_7980,ref_opt,export]}].
+      [recv,coverage,otp_7980,ref_opt,export,wait]}].
 
 
 init_per_suite(Config) ->
@@ -188,7 +189,7 @@ ref_opt(Config) when is_list(Config) ->
 ref_opt_1(Config) ->
     ?line DataDir = ?config(data_dir, Config),
     ?line PrivDir = ?config(priv_dir, Config),
-    ?line Sources = filelib:wildcard(filename:join([DataDir,"ref_opt","*.erl"])),
+    Sources = filelib:wildcard(filename:join([DataDir,"ref_opt","*.{erl,S}"])),
     ?line test_lib:p_run(fun(Src) ->
 				 do_ref_opt(Src, PrivDir)
 			 end, Sources),
@@ -196,10 +197,15 @@ ref_opt_1(Config) ->
 
 do_ref_opt(Source, PrivDir) ->
     try
-	{ok,Mod} = c:c(Source, [{outdir,PrivDir}]),
+	Ext = filename:extension(Source),
+	{ok,Mod} = compile:file(Source, [report_errors,report_warnings,
+					 {outdir,PrivDir}] ++
+					[from_asm || Ext =:= ".S" ]),
+	Base = filename:rootname(filename:basename(Source), Ext),
+    code:purge(list_to_atom(Base)),
+    BeamFile = filename:join(PrivDir, Base),
+    code:load_abs(BeamFile),
 	ok = Mod:Mod(),
-	Base = filename:rootname(filename:basename(Source), ".erl"),
-	BeamFile = filename:join(PrivDir, Base),
 	{beam_file,Mod,_,_,_,Code} = beam_disasm:file(BeamFile),
 	case Base of
 	    "no_"++_ ->
@@ -246,5 +252,21 @@ export_1(Reference) ->
     %% by beam_block.
     id({build,self()}),
     Result.
+
+wait(Config) when is_list(Config) ->
+    self() ! <<42>>,
+    <<42>> = wait_1(r, 1, 2),
+    {1,2,3} = wait_1(1, 2, 3),
+    ok.
+
+wait_1(r, _, _) ->
+    receive
+	B when byte_size(B) > 0 ->
+	    B
+    end;
+%% beam_utils would wrongly assume that wait/1 could fall through
+%% to the next clause.
+wait_1(A, B, C) ->
+    {A,B,C}.
 
 id(I) -> I.

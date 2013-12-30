@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -602,7 +602,7 @@ iter_max_socks(Config) when is_list(Config) ->
     %% Run on a different node in order to limit the effect if this test fails.
     Dir = filename:dirname(code:which(?MODULE)),
     {ok,Node} = test_server:start_node(test_iter_max_socks,slave,
-				       [{args,"-pa " ++ Dir}]),
+				       [{args,"+Q 2048 -pa " ++ Dir}]),
     L = rpc:call(Node,?MODULE,do_iter_max_socks,[N, initalize]),
     test_server:stop_node(Node),
 

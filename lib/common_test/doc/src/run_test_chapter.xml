@@ -21,7 +21,7 @@
 
     </legalnotice>
 
-    <title>Running Tests</title>
+    <title>Running Tests and Analyzing Results</title>
     <prepared>Peter Andersson, Kenneth Lundin</prepared>
     <docno></docno>
     <date></date>
@@ -105,8 +105,8 @@
       RPC from a remote node.</p>
   </section>
 
-  <marker id="ct_run"></marker>
   <section>
+  <marker id="ct_run"></marker>
     <title>Running tests from the OS command line</title>
     
     <p>The <c>ct_run</c> program can be used for running tests from
@@ -174,7 +174,7 @@
       <item><c><![CDATA[-repeat <n>]]></c>, tells Common Test to repeat the tests n times (see below).</item> 
       <item><c><![CDATA[-duration <time>]]></c>, tells Common Test to repeat the tests for duration of time (see below).</item> 
       <item><c><![CDATA[-until <stop_time>]]></c>, tells Common Test to repeat the tests until stop_time (see below).</item> 
-      <item><c>-force_stop</c>, on timeout, the test run will be aborted when current test job is finished (see below).</item>
+      <item><c>-force_stop [skip_rest]</c>, on timeout, the test run will be aborted when current test job is finished. If <c>skip_rest</c> is provided the rest of the test cases in the current test job will be skipped (see below).</item>
       <item><c><![CDATA[-decrypt_key <key>]]></c>, provides a decryption key for 
         <seealso marker="config_file_chapter#encrypted_config_files">encrypted configuration files</seealso>.</item>
       <item><c><![CDATA[-decrypt_file <key_file>]]></c>, points out a file containing a decryption key for 
@@ -205,12 +205,12 @@
     <p>The <c>ct_run</c> program sets the exit status before shutting down. The following values
       are defined:</p>
     <list>
-      <item><c>0</c> indicates a successful testrun, i.e. one without failed or auto-skipped test cases.</item>
-      <item><c>1</c> indicates that one or more test cases have failed, or have been auto-skipped.</item>
+      <item><c>0</c> indicates a successful testrun, i.e. one without failed or auto skipped test cases.</item>
+      <item><c>1</c> indicates that one or more test cases have failed, or have been auto skipped.</item>
       <item><c>2</c> indicates that the test execution has failed because of e.g. compilation errors, an
 	illegal return value from an info function, etc.</item>
     </list>
-    <p>If auto-skipped test cases should not affect the exit status, you may change the default
+    <p>If auto skipped test cases should not affect the exit status, you may change the default
       behaviour using start flag:</p>
     <pre>-exit_status ignore_config</pre>
     
@@ -225,15 +225,15 @@
     
     <p>Common Test provides an Erlang API for running tests. The main (and most
       flexible) function for specifying and executing tests is called
-      <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c>.
+      <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>.
       This function takes the same start parameters as
-      the <c><seealso marker="run_test_chapter#ct_run">ct_run</seealso></c>
+      the <seealso marker="run_test_chapter#ct_run"><c>ct_run</c></seealso>
       program described above, only the flags are instead
       given as options in a list of key-value tuples. E.g. a test specified 
       with <c>ct_run</c> like:</p>
 
       <p><c>$ ct_run -suite ./my_SUITE -logdir ./results</c></p> 
-      <p>is with <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c> specified as:</p>
+      <p>is with <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso> specified as:</p>
       <p><c>1> ct:run_test([{suite,"./my_SUITE"},{logdir,"./results"}]).</c></p>
 
       <p>The function returns the test result, represented by the tuple:
@@ -245,7 +245,7 @@
 	<section>
 	  <title>Releasing the Erlang shell</title>
 	  <p>During execution of tests, started with
-	  <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c>,
+	  <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>,
 	  the Erlang shell process, controlling stdin, will remain the top
 	  level process of the Common Test system of processes. The result
 	  is that the Erlang shell is not available for interaction during
@@ -260,19 +260,19 @@
 	  <c>ct:run_test/1</c> returns the pid of this process rather than the
 	  test result - which instead is printed to tty at the end of the test run.</p>
 	  <note><p>Note that in order to use the
-	  <c><seealso marker="ct#break-1">ct:break/1/2</seealso></c> and
-	  <c><seealso marker="ct#continue-0">ct:continue/0/1</seealso></c> functions,
+	  <seealso marker="ct#break-1"><c>ct:break/1/2</c></seealso> and
+	  <seealso marker="ct#continue-0"><c>ct:continue/0/1</c></seealso> functions,
 	  <c>release_shell</c> <em>must</em> be set to <c>true</c>.</p></note>
 	</section>
         
       <p>For detailed documentation about
-        <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c>,
+        <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>,
         please see the
-        <c><seealso marker="ct#run_test-1">ct</seealso></c> manual page.</p>    
+        <seealso marker="ct#run_test-1"><c>ct</c></seealso> manual page.</p>    
   </section>
   
-  <marker id="group_execution"></marker>
    <section>
+    <marker id="group_execution"></marker>
     <title>Test case group execution</title>
     
     <p>With the <c>ct_run</c> flag, or <c>ct:run_test/1</c> option <c>group</c>,
@@ -442,9 +442,9 @@
       for trying out various operations during test suite development.</p>
 
     <p>To invoke the interactive shell mode, you can start an Erlang shell 
-      manually and call <c><seealso marker="ct#install-1">ct:install/1</seealso></c> to install any configuration
+      manually and call <seealso marker="ct#install-1"><c>ct:install/1</c></seealso> to install any configuration
       data you might need (use <c>[]</c> as argument otherwise), then
-      call <c><seealso marker="ct#start_interactive-0">ct:start_interactive/0</seealso></c> to start Common Test. If you use
+      call <seealso marker="ct#start_interactive-0"><c>ct:start_interactive/0</c></seealso> to start Common Test. If you use
       the <c>ct_run</c> program, you may start the Erlang shell and Common Test
       in the same go by using the <c>-shell</c> and, optionally, the <c>-config</c>
       and/or <c>-userconfig</c> flag. Examples:
@@ -463,8 +463,8 @@
     
     <p>If any functions using "required config data" (e.g. ct_telnet or
       ct_ftp functions) are to be called from the erlang shell, config
-      data must first be required with <c><seealso marker="ct#require-1">
-      ct:require/1/2</seealso></c>. This is
+      data must first be required with <seealso marker="ct#require-1"><c>
+      ct:require/1/2</c></seealso>. This is
       equivalent to a <c>require</c> statement in the <seealso
 	marker="write_test_chapter#suite">Test Suite Info 
 	Function</seealso> or in the <seealso
@@ -491,11 +491,11 @@
       is not supported.</p>
     
     <p>If you wish to exit the interactive mode (e.g. to start an
-      automated test run with <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c>), call the function
-      <c><seealso marker="ct#stop_interactive-0">ct:stop_interactive/0</seealso></c>. This shuts down the
+      automated test run with <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>), call the function
+      <seealso marker="ct#stop_interactive-0"><c>ct:stop_interactive/0</c></seealso>. This shuts down the
       running <c>ct</c> application. Associations between
       configuration names and data created with <c>require</c> are 
-      consequently deleted. <c><seealso marker="ct#start_interactive-0">ct:start_interactive/0</seealso></c> will get you
+      consequently deleted. <seealso marker="ct#start_interactive-0"><c>ct:start_interactive/0</c></seealso> will get you
       back into interactive mode, but the previous state is not restored.</p>
   </section>
 
@@ -503,7 +503,7 @@
     <title>Step by step execution of test cases with the Erlang Debugger</title>
    
     <p>By means of <c>ct_run -step [opts]</c>, or by passing the 
-       <c>{step,Opts}</c> option to <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c>, it is possible
+       <c>{step,Opts}</c> option to <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>, it is possible
        to get the Erlang Debugger started automatically and use its
        graphical interface to investigate the state of the current test 
        case and to execute it step by step and/or set execution breakpoints.</p>
@@ -527,17 +527,17 @@
        with <c>dir</c>.</p>       
   </section>
 
-  <marker id="test_specifications"></marker>
   <section>
+  <marker id="test_specifications"></marker>
     <title>Test Specifications</title>
     <section>
 	<title>General description</title>
 	<p>The most flexible way to specify what to test, is to use a so
 	called test specification. A test specification is a sequence of
 	Erlang terms. The terms are normally declared in one or more text files
-	(see <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c>), but
+	(see <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso>), but
 	may also be passed to Common Test on the form of a list (see
-	<c><seealso marker="ct#run_testspec-1">ct:run_testspec/1</seealso></c>).
+	<seealso marker="ct#run_testspec-1"><c>ct:run_testspec/1</c></seealso>).
 	There are two general types of terms: configuration terms and test
 	specification terms.</p>
 	<p>With configuration terms it is possible to e.g. label the test
@@ -989,7 +989,7 @@
 	  <c>ct_run</c>. This forces Common Test to ignore unrecognizable terms.
 	  Note that in this mode, Common Test is not able to check the specification 
 	  for errors as efficiently as if the scanner runs in default mode. 
-	  If <c><seealso marker="ct#run_test-1">ct:run_test/1</seealso></c> is used
+	  If <seealso marker="ct#run_test-1"><c>ct:run_test/1</c></seealso> is used
 	  for starting the tests, the relaxed scanner
 	  mode is enabled by means of the tuple: <c>{allow_user_terms,true}</c></p>
 	</section>
@@ -999,7 +999,7 @@
     <title>Running tests from the Web based GUI</title>
     
     <p>The web based GUI, VTS, is started with the
-      <c><seealso marker="run_test_chapter#ct_run">ct_run</seealso></c>
+      <seealso marker="run_test_chapter#ct_run"><c>ct_run</c></seealso>
       program. From the GUI you can load config files, and select
       directories, suites and cases to run. You can also state the
       config files, directories, suites and cases on the command line
@@ -1087,18 +1087,18 @@
       </list>
       
       <p>On the test run index page there is a link to the Common Test
-	Framework log file in which information about imported
-	configuration data and general test progress is written. This
-	log file is useful to get snapshot information about the test
-	run during execution. It can also be very helpful when
-	analyzing test results or debugging test suites.</p>
+        Framework Log file in which information about imported
+        configuration data and general test progress is written. This
+        log file is useful to get snapshot information about the test
+        run during execution. It can also be very helpful when
+        analyzing test results or debugging test suites.</p>
 
       <p>On the test run index page it is noted if a test has missing
         suites (i.e. suites that Common Test has failed to
         compile). Names of the missing suites can be found in the
-        Common Test Framework log file.</p>
+        Common Test Framework Log file.</p>
 
-      <p>The major logfile shows a detailed report of the test run. It
+      <p>The major log file shows a detailed report of the test run. It
         includes test suite and test case names, execution time, the 
 	exact reason for failures etc. The information is available in both
 	a file with textual and with HTML representation. The HTML file shows a 
@@ -1171,6 +1171,40 @@
 	    uses the <url href="http://jquery.com">jQuery</url> library and the
 	    <url href="http://tablesorter.com">tablesorter</url> plugin, with customized sorting
 	    functions, for this implementation.</p>
+	</section>
+
+	<section>
+	  <title>The Unexpected I/O Log</title>
+	  <p>On the test suites overview page you find a link to the Unexpected I/O Log.
+	  In this log, Common Test saves printouts made with
+	  <c>ct:log/2</c> and <c>ct:pal/2</c>, as well as captured system error- and
+	  progress reports, that cannot be associated with particular test cases and
+	  therefore cannot be written to individual test case log files. This happens e.g.
+	  if a log printout is made from an external process (not a test case process),
+	  or if an error- or progress report comes in, during a short interval while Common
+	  Test is not executing a test case or configuration function, <em>or</em> while
+	  Common Test is currently executing a parallell test case group.</p>
+	</section>
+
+	<section>
+	  <marker id="pre_post_test_io_log"></marker>
+	  <title>The Pre- and Post Test I/O Log</title>
+	  <p>On the Common Test Framework Log page you find links to the so called
+	  Pre- and Post Test I/O Log. In this log, Common Test saves printouts made with
+	  <c>ct:log/2</c> and <c>ct:pal/2</c>, as well as captured system error-
+	  and progress reports, that take place before - and after - the actual test run.
+	  Examples of this are printouts from a CT hook init- or terminate function, or
+	  progress reports generated when an OTP application is started from a CT hook
+	  init function. Another example is an error report generated due to
+	  a failure when an external application is stopped from a CT hook terminate function.
+	  All information in these examples ends up in the Pre- and Post Test I/O Log.
+	  For more information on how to synchronize test runs with external user
+	  applications, please see the
+	  <seealso marker="ct_hooks_chapter#synchronizing">Synchronizing</seealso>
+	  section in the Common Test Hooks chapter.</p>
+	  <p>Note that logging to file with <c>ct:log/2</c> or <c>ct:pal/2</c>
+	  only works when Common Test is running. Printouts with <c>ct:pal/2</c>
+	  are however always displayed on screen.</p>
 	</section>
       </section>
   
@@ -1273,6 +1307,7 @@
        <item><c>-duration DurTime ({duration,DurTime})</c>, where <c>DurTime</c> is the duration, see below.</item>
        <item><c>-until StopTime ({until,StopTime})</c>, where <c>StopTime</c> is finish time, see below.</item>
        <item><c>-force_stop ({force_stop,true})</c></item>
+       <item><c>-force_stop skip_rest ({force_stop,skip_rest})</c></item>
        </list>
        <p>The duration time, <c>DurTime</c>, is specified as <c>HHMMSS</c>. Example: 
           <c>-duration 012030</c> or <c>{duration,"012030"}</c>, means the tests will 
@@ -1283,12 +1318,16 @@
 	  Example: <c>-until 071001120000</c> or <c>{until,"071001120000"}</c>, which means the tests
 	  will be executed and (if time allows) repeated, until 12 o'clock on the 1st of Oct 2007.</p>
 
-       <p>When timeout occurs, Common Test will never abort the test run immediately, since 
+       <p>When timeout occurs, Common Test will never abort the ongoing test case, since
           this might leave the system under test in an undefined, and possibly bad, state.
-	  Instead Common Test will finish the current test job, or the complete test 
-	  run, before stopping. The latter is the default behaviour. The <c>force_stop</c> 
-	  flag/option tells Common Test to stop as soon as the current test job is finished.
-	  Note that since Common Test always finishes off the current test job or test session,
+	  Instead Common Test will by default finish the current test
+	  run before stopping. If the <c>force_stop</c> flag is
+	  given, Common Test will stop as soon as the current test job
+	  is finished, and if the <c>force_stop</c> flag is given with
+	  <c>skip_rest</c> Common Test will only complete the current
+	  test case and skip the rest of the tests in the test job.
+	  Note that since Common Test always finishes off at least the
+	  current test case,
 	  the time specified with <c>duration</c> or <c>until</c> is never definitive!</p>
 
        <p>Log files from every single repeated test run is saved in normal Common Test fashion (see above). 
@@ -1312,6 +1351,18 @@
 
        <p>Example 2:</p>
        <pre>
+          $ ct_run -dir $TEST_ROOT/to1 $TEST_ROOT/to2 -duration 001000 -forces_stop skip_rest</pre>
+       <p>Here the same test run as in Example 1, but with the
+       <c>force_stop</c> flag set to <c>skip_rest</c>. If the timeout
+       occurs while executing tests in directory to1, the rest of the
+       test cases in to1 will be skipped and then the test will be
+       aborted without running the tests in to2 another time. If the
+       timeout occurs while executing tests in directory to2, then the
+       rest of the test cases in to2 will be skipped and then the test
+       will be aborted.</p>
+
+       <p>Example 3:</p>
+       <pre>
           $ date
 	  Fri Sep 28 15:00:00 MEST 2007
 
@@ -1321,7 +1372,7 @@
 	  Common Test will finish the entire test run before stopping (i.e. the to1 and to2 test
 	  will always both be executed in the same test run).</p>
        
-       <p>Example 3:</p>
+       <p>Example 4:</p>
        <pre>
           $ ct_run -dir $TEST_ROOT/to1 $TEST_ROOT/to2 -repeat 5</pre>
        <p>Here the test run, including both the to1 and the to2 test, will be repeated 5 times.</p>

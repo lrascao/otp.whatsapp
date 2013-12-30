@@ -367,7 +367,7 @@ compare(Got, Expected) ->
 	    ?t:fail(got_bad_data)
     end.
 
-
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% 		Driver timer test suites
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -515,7 +515,7 @@ try_change_timer(Port, Timeout) ->
 	    ?line test_server:fail("driver failed to timeout")
     end.
 
-
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% 		Queue test suites
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -719,7 +719,7 @@ deq(Port, Size) ->
 read_head(Port, Size) ->
     erlang:port_control(Port, ?READ_HEAD, <<Size:32>>).
 
-
+
 driver_unloaded(doc) ->
     [];
 driver_unloaded(suite) ->
@@ -2582,10 +2582,9 @@ driver_alloc_size() ->
 	MemInfo ->
 	    CS = lists:foldl(
 		   fun ({instance, _, L}, Acc) ->
-			   {value,{_,SBMBCS}} = lists:keysearch(sbmbcs, 1, L),
 			   {value,{_,MBCS}} = lists:keysearch(mbcs, 1, L),
 			   {value,{_,SBCS}} = lists:keysearch(sbcs, 1, L),
-			   [SBMBCS,MBCS,SBCS | Acc]
+			   [MBCS,SBCS | Acc]
 		   end,
 		   [],
 		   MemInfo),

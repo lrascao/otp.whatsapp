@@ -217,6 +217,7 @@ Step 4: Run the following commands to configure the build:
 
     $ ./configure  [ options ]
 
+If you are building it from git you will need to run `autoconf` to generate configure file.
 By default, Erlang/OTP will be installed in `/usr/local/{bin,lib/erlang}`.
 To instead install in `<BaseDir>/{bin,lib/erlang}`, use the
 `--prefix=<BaseDir>` option.
@@ -288,6 +289,20 @@ Some of the available `configure` options are:
     implementation available, you typically want to try using the
     `libatomic_ops` library. It can be downloaded from
     <http://www.hpl.hp.com/research/linux/atomic_ops/>.
+*   `--disable-smp-require-native-atomics` - By default `configure` will
+    fail if an SMP runtime system is about to be built, and no implementation
+    for native atomic memory accesses can be found. If this happens, you are
+    encouraged to find a native atomic implementation that can be used, e.g.,
+    using `libatomic_ops`, but by passing `--disable-smp-require-native-atomics`
+    you can build using a fallback implementation based on mutexes or spinlocks.
+    Performance of the SMP runtime system will however suffer immensely without
+    an implementation for native atomic memory accesses.
+*   `--without-$app` - By default all applications in Erlang/OTP will be included
+	in a release. If this is not wanted it is possible to specify that Erlang/OTP
+	should be compiled without that applications, i.e. `--without-wx`. There is
+	no automatic dependency handling inbetween applications. So if you disable
+	an application that another depends on, you also have to disable the
+	dependant application.
 
 If you or your system has special requirements please read the `Makefile` for
 additional configuration information.

@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2012. All Rights Reserved.
+ * Copyright Ericsson AB 2012-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -23,6 +23,8 @@
 #include "sys.h"
 #include "erl_smp.h"
 #include "erl_printf.h"
+
+struct process;
 
 typedef struct {
 #ifdef DEBUG
@@ -156,6 +158,9 @@ Uint32 make_hash2(Eterm);
 Uint32 make_hash2_init(Eterm, Uint32 initval);
 Uint32 make_hash(Eterm);
 
+void erts_save_emu_args(int argc, char **argv);
+Eterm erts_get_emu_args(struct process *c_p);
+Eterm erts_get_ethread_info(struct process * c_p);
 
 Eterm erts_bld_atom(Uint **hpp, Uint *szp, char *str);
 Eterm erts_bld_uint(Uint **hpp, Uint *szp, Uint ui);
@@ -164,6 +169,10 @@ Eterm erts_bld_uint64(Uint **hpp, Uint *szp, Uint64 ui64);
 Eterm erts_bld_sint64(Uint **hpp, Uint *szp, Sint64 si64);
 Eterm erts_bld_cons(Uint **hpp, Uint *szp, Eterm car, Eterm cdr);
 Eterm erts_bld_tuple(Uint **hpp, Uint *szp, Uint arity, ...);
+#define erts_bld_tuple2(H,S,E1,E2) erts_bld_tuple(H,S,2,E1,E2)
+#define erts_bld_tuple3(H,S,E1,E2,E3) erts_bld_tuple(H,S,3,E1,E2,E3)
+#define erts_bld_tuple4(H,S,E1,E2,E3,E4) erts_bld_tuple(H,S,4,E1,E2,E3,E4)
+#define erts_bld_tuple5(H,S,E1,E2,E3,E4,E5) erts_bld_tuple(H,S,5,E1,E2,E3,E4,E5)
 Eterm erts_bld_tuplev(Uint **hpp, Uint *szp, Uint arity, Eterm terms[]);
 Eterm erts_bld_string_n(Uint **hpp, Uint *szp, const char *str, Sint len);
 #define erts_bld_string(hpp,szp,str) erts_bld_string_n(hpp,szp,str,strlen(str))
@@ -171,8 +180,8 @@ Eterm erts_bld_list(Uint **hpp, Uint *szp, Sint length, Eterm terms[]);
 Eterm erts_bld_2tup_list(Uint **hpp, Uint *szp,
 			 Sint length, Eterm terms1[], Uint terms2[]);
 Eterm
-erts_bld_atom_uint_2tup_list(Uint **hpp, Uint *szp,
-			     Sint length, Eterm atoms[], Uint uints[]);
+erts_bld_atom_uword_2tup_list(Uint **hpp, Uint *szp,
+			     Sint length, Eterm atoms[], UWord uints[]);
 Eterm
 erts_bld_atom_2uint_3tup_list(Uint **hpp, Uint *szp, Sint length,
 			      Eterm atoms[], Uint uints1[], Uint uints2[]);

@@ -131,8 +131,10 @@ extern void ConWaitForExit(void);
 
 static void erl_init(int ncpu,
 		     int proc_tab_sz,
+		     int legacy_proc_tab,
 		     int port_tab_sz,
-		     int port_tab_sz_ignore_files);
+		     int port_tab_sz_ignore_files,
+		     int legacy_port_tab);
 
 static erts_atomic_t exiting;
 
@@ -280,7 +282,9 @@ erts_short_init(void)
     int ncpu = early_init(NULL, NULL);
     erl_init(ncpu,
 	     ERTS_DEFAULT_MAX_PROCESSES,
+	     0,
 	     ERTS_DEFAULT_MAX_PORTS,
+	     0,
 	     0);
     erts_initialized = 1;
 }
@@ -288,19 +292,21 @@ erts_short_init(void)
 static void
 erl_init(int ncpu,
 	 int proc_tab_sz,
+	 int legacy_proc_tab,
 	 int port_tab_sz,
-	 int port_tab_sz_ignore_files)
+	 int port_tab_sz_ignore_files,
+	 int legacy_port_tab)
 {
     init_benchmarking();
 
     erts_init_monitors();
-    erts_init_gc();
     erts_init_time();
     erts_init_sys_common_misc();
-    erts_init_process(ncpu, proc_tab_sz);
+    erts_init_process(ncpu, proc_tab_sz, legacy_proc_tab);
     erts_init_scheduling(no_schedulers,
 			 no_schedulers_online);
     erts_init_cpu_topology(); /* Must be after init_scheduling */
+    erts_init_gc(); /* Must be after init_scheduling */
     erts_alloc_late_init();
 
     H_MIN_SIZE      = erts_next_heap_size(H_MIN_SIZE, 0);
@@ -327,13 +333,14 @@ erl_init(int ncpu,
     init_dist();
     erl_drv_thr_init();
     erts_init_async();
-    erts_init_io(port_tab_sz, port_tab_sz_ignore_files);
+    erts_init_io(port_tab_sz, port_tab_sz_ignore_files, legacy_port_tab);
     init_load();
     erts_init_bif();
     erts_init_bif_chksum();
     erts_init_bif_binary();
     erts_init_bif_re();
     erts_init_unicode(); /* after RE to get access to PCRE unicode */
+    erts_init_external();
     erts_delay_trap = erts_export_put(am_erlang, am_delay_trap, 2);
     erts_late_init_process();
 #if HAVE_ERTS_MSEG
@@ -532,6 +539,8 @@ void erts_usage(void)
     erts_fprintf(stderr, "            see the erl(1) documentation for more info.\n");
     erts_fprintf(stderr, "-sws val    set scheduler wakeup strategy, valid values are:\n");
     erts_fprintf(stderr, "            default|legacy.\n");
+    erts_fprintf(stderr, "-swct val   set scheduler wake cleanup threshold, valid values are:\n");
+    erts_fprintf(stderr, "            very_lazy|lazy|medium|eager|very_eager.\n");
     erts_fprintf(stderr, "-swt val    set scheduler wakeup threshold, valid values are:\n");
     erts_fprintf(stderr, "            very_low|low|medium|high|very_high.\n");
     erts_fprintf(stderr, "-sss size   suggested stack size in kilo words for scheduler threads,\n");
@@ -540,9 +549,12 @@ void erts_usage(void)
 		 ERTS_SCHED_THREAD_MAX_STACK_SIZE);
     erts_fprintf(stderr, "-spp Bool   set port parallelism scheduling hint\n");
     erts_fprintf(stderr, "-S n1:n2    set number of schedulers (n1), and number of\n");
-    erts_fprintf(stderr, "            schedulers online (n2), valid range for both\n");
-    erts_fprintf(stderr, "            numbers are [1-%d]\n",
+    erts_fprintf(stderr, "            schedulers online (n2), maximum for both\n");
+    erts_fprintf(stderr, "            numbers is %d\n",
 		 ERTS_MAX_NO_OF_SCHEDULERS);
+    erts_fprintf(stderr, "-SP p1:p2   specify schedulers (p1) and schedulers online (p2)\n");
+    erts_fprintf(stderr, "	      as percentages of logical processors configured and logical\n");
+    erts_fprintf(stderr, "	      processors available, respectively\n");
     erts_fprintf(stderr, "-t size     set the maximum number of atoms the "
 			 "emulator can handle\n");
     erts_fprintf(stderr, "            valid range is [%d-%d]\n",
@@ -622,11 +634,15 @@ early_init(int *argc, char **argv) /*
     int ncpuavail;
     int schdlrs;
     int schdlrs_onln;
+    int schdlrs_percentage = 100;
+    int schdlrs_onln_percentage = 100;
     int max_main_threads;
     int max_reader_groups;
     int reader_groups;
     char envbuf[21]; /* enough for any 64-bit integer */
     size_t envbufsz;
+
+    erts_save_emu_args(*argc, argv);
 
     erts_sched_compact_load = 1;
     erts_printf_eterm_func = erts_printf_term;
@@ -747,63 +763,132 @@ early_init(int *argc, char **argv) /*
 		    }
 		    break;
 		}
-		case 'S' : {
-		    int tot, onln;
-		    char *arg = get_arg(argv[i]+2, argv[i+1], &i);
-		    switch (sscanf(arg, "%d:%d", &tot, &onln)) {
-		    case 0:
-			switch (sscanf(arg, ":%d", &onln)) {
+		case 'S' :
+		    if (argv[i][2] == 'P') {
+			int ptot, ponln;
+			char *arg = get_arg(argv[i]+3, argv[i+1], &i);
+			switch (sscanf(arg, "%d:%d", &ptot, &ponln)) {
+			case 0:
+			    switch (sscanf(arg, ":%d", &ponln)) {
+			    case 1:
+				if (ponln < 0)
+				    goto bad_SP;
+				ptot = 100;
+				goto chk_SP;
+			    default:
+				goto bad_SP;
+			    }
 			case 1:
-			    tot = no_schedulers;
-			    goto chk_S;
+			    if (ptot < 0)
+				goto bad_SP;
+			    ponln = ptot < 100 ? ptot : 100;
+			    goto chk_SP;
+			case 2:
+			    if (ptot < 0 || ponln < 0)
+				goto bad_SP;
+			chk_SP:
+			    schdlrs_percentage = ptot;
+			    schdlrs_onln_percentage = ponln;
+			    break;
 			default:
-			    goto bad_S;
-			}
-		    case 1:
-			onln = tot < schdlrs_onln ? tot : schdlrs_onln;
-		    case 2:
-		    chk_S:
-			if (tot > 0)
-			    schdlrs = tot;
-			else
-			    schdlrs = no_schedulers + tot;
-			if (onln > 0)
-			    schdlrs_onln = onln;
-			else
-			    schdlrs_onln = no_schedulers_online + onln;
-			if (schdlrs < 1 || ERTS_MAX_NO_OF_SCHEDULERS < schdlrs) {
-			    erts_fprintf(stderr,
-					 "bad amount of schedulers %d\n",
-					 tot);
-			    erts_usage();
-			}
-			if (schdlrs_onln < 1 || schdlrs < schdlrs_onln) {
-			    erts_fprintf(stderr,
-					 "bad amount of schedulers online %d "
-					 "(total amount of schedulers %d)\n",
-					 schdlrs_onln, schdlrs);
-			    erts_usage();
-			}
-			break;
-		    default:
-		    bad_S:
-			erts_fprintf(stderr,
-				     "bad amount of schedulers %s\n",
-				     arg);
-			erts_usage();
-			break;
-		    }
+                        bad_SP:
+                            erts_fprintf(stderr,
+                                         "bad schedulers percentage specifier %s\n",
+                                         arg);
+                            erts_usage();
+                            break;
+                        }
 
-		    VERBOSE(DEBUG_SYSTEM,
-			    ("using %d:%d scheduler(s)\n", tot, onln));
-		    break;
-		}
+                        VERBOSE(DEBUG_SYSTEM,
+                                ("using %d:%d scheduler percentages\n",
+                                 schdlrs_percentage, schdlrs_onln_percentage));
+                    } else {
+			int tot, onln;
+			char *arg = get_arg(argv[i]+2, argv[i+1], &i);
+			switch (sscanf(arg, "%d:%d", &tot, &onln)) {
+			case 0:
+			    switch (sscanf(arg, ":%d", &onln)) {
+			    case 1:
+				tot = no_schedulers;
+				goto chk_S;
+			    default:
+				goto bad_S;
+			    }
+			case 1:
+			    onln = tot < schdlrs_onln ? tot : schdlrs_onln;
+			case 2:
+			chk_S:
+			    if (tot > 0)
+				schdlrs = tot;
+			    else
+				schdlrs = no_schedulers + tot;
+			    if (onln > 0)
+				schdlrs_onln = onln;
+			    else
+				schdlrs_onln = no_schedulers_online + onln;
+			    if (schdlrs < 1 || ERTS_MAX_NO_OF_SCHEDULERS < schdlrs) {
+				erts_fprintf(stderr,
+					     "bad amount of schedulers %d\n",
+					     tot);
+				erts_usage();
+			    }
+			    if (schdlrs_onln < 1 || schdlrs < schdlrs_onln) {
+				erts_fprintf(stderr,
+					     "bad amount of schedulers online %d "
+					     "(total amount of schedulers %d)\n",
+					     schdlrs_onln, schdlrs);
+				erts_usage();
+			    }
+			    break;
+			default:
+			bad_S:
+			    erts_fprintf(stderr,
+					 "bad amount of schedulers %s\n",
+					 arg);
+			    erts_usage();
+			    break;
+			}
+
+			VERBOSE(DEBUG_SYSTEM,
+				("using %d:%d scheduler(s)\n", tot, onln));
+		    }
+                    break;
 		default:
 		    break;
 		}
 	    }
 	    i++;
 	}
+
+#ifdef ERTS_SMP
+	/* apply any scheduler percentages */
+	if (schdlrs_percentage != 100 || schdlrs_onln_percentage != 100) {
+	    schdlrs = schdlrs * schdlrs_percentage / 100;
+	    schdlrs_onln = schdlrs_onln * schdlrs_onln_percentage / 100;
+	    if (schdlrs < 1)
+                schdlrs = 1;
+            if (ERTS_MAX_NO_OF_SCHEDULERS < schdlrs) {
+		erts_fprintf(stderr,
+			     "bad schedulers percentage %d "
+			     "(total amount of schedulers %d)\n",
+			     schdlrs_percentage, schdlrs);
+		erts_usage();
+	    }
+	    if (schdlrs_onln < 1)
+                schdlrs_onln = 1;
+            if (schdlrs < schdlrs_onln) {
+		erts_fprintf(stderr,
+			     "bad schedulers online percentage %d "
+			     "(total amount of schedulers %d, online %d)\n",
+			     schdlrs_onln_percentage, schdlrs, schdlrs_onln);
+		erts_usage();
+	    }
+	}
+#else
+	/* Silence gcc warnings */
+	(void)schdlrs_percentage;
+	(void)schdlrs_onln_percentage;
+#endif
     }
 
 #ifndef USE_THREADS
@@ -921,6 +1006,9 @@ erl_start(int argc, char **argv)
     int proc_tab_sz = ERTS_DEFAULT_MAX_PROCESSES;
     int port_tab_sz = ERTS_DEFAULT_MAX_PORTS;
     int port_tab_sz_ignore_files = 0;
+    int legacy_proc_tab = 0;
+    int legacy_port_tab = 0;
+
 
     envbufsz = sizeof(envbuf);
     if (erts_sys_getenv_raw(ERL_MAX_ETS_TABLES_ENV, envbuf, &envbufsz) == 0)
@@ -1266,31 +1354,42 @@ erl_start(int argc, char **argv)
 
 	case 'P': /* set maximum number of processes */
 	    arg = get_arg(argv[i]+2, argv[i+1], &i);
-	    errno = 0;
-	    proc_tab_sz = strtol(arg, NULL, 10);
-	    if (errno != 0
-		|| proc_tab_sz < ERTS_MIN_PROCESSES
-		|| ERTS_MAX_PROCESSES < proc_tab_sz) {
-		erts_fprintf(stderr, "bad number of processes %s\n", arg);
-		erts_usage();
+	    if (strcmp(arg, "legacy") == 0)
+		legacy_proc_tab = 1;
+	    else {
+		errno = 0;
+		proc_tab_sz = strtol(arg, NULL, 10);
+		if (errno != 0
+		    || proc_tab_sz < ERTS_MIN_PROCESSES
+		    || ERTS_MAX_PROCESSES < proc_tab_sz) {
+		    erts_fprintf(stderr, "bad number of processes %s\n", arg);
+		    erts_usage();
+		}
 	    }
 	    break;
 
 	case 'Q': /* set maximum number of ports */
 	    arg = get_arg(argv[i]+2, argv[i+1], &i);
-	    errno = 0;
-	    port_tab_sz = strtol(arg, NULL, 10);
-	    if (errno != 0
-		|| port_tab_sz < ERTS_MIN_PROCESSES
-		|| ERTS_MAX_PROCESSES < port_tab_sz) {
-		erts_fprintf(stderr, "bad number of ports %s\n", arg);
-		erts_usage();
+	    if (strcmp(arg, "legacy") == 0)
+		legacy_port_tab = 1;
+	    else {
+		errno = 0;
+		port_tab_sz = strtol(arg, NULL, 10);
+		if (errno != 0
+		    || port_tab_sz < ERTS_MIN_PROCESSES
+		    || ERTS_MAX_PROCESSES < port_tab_sz) {
+		    erts_fprintf(stderr, "bad number of ports %s\n", arg);
+		    erts_usage();
+		}
+		port_tab_sz_ignore_files = 1;
 	    }
-	    port_tab_sz_ignore_files = 1;
 	    break;
 
 	case 'S' : /* Was handled in early_init() just read past it */
-	    (void) get_arg(argv[i]+2, argv[i+1], &i);
+	    if (argv[i][2] == 'P')
+		(void) get_arg(argv[i]+3, argv[i+1], &i);
+	    else
+		(void) get_arg(argv[i]+2, argv[i+1], &i);
 	    break;
 
 	case 's' : {
@@ -1413,7 +1512,17 @@ erl_start(int argc, char **argv)
 		    erts_usage();
 		}
 	    }
-	    else if (sys_strcmp("wt", sub_param) == 0) {
+	    else if (has_prefix("wct", sub_param)) {
+		arg = get_arg(sub_param+3, argv[i+1], &i);
+		if (erts_sched_set_wake_cleanup_threshold(arg) != 0) {
+		    erts_fprintf(stderr, "scheduler wake cleanup threshold: %s\n",
+				 arg);
+		    erts_usage();
+		}
+		VERBOSE(DEBUG_SYSTEM,
+			("scheduler wake cleanup threshold: %s\n", arg));
+	    }
+	    else if (has_prefix("wt", sub_param)) {
 		arg = get_arg(sub_param+2, argv[i+1], &i);
 		if (erts_sched_set_wakeup_other_thresold(arg) != 0) {
 		    erts_fprintf(stderr, "scheduler wakeup threshold: %s\n",
@@ -1423,7 +1532,7 @@ erl_start(int argc, char **argv)
 		VERBOSE(DEBUG_SYSTEM,
 			("scheduler wakeup threshold: %s\n", arg));
 	    }
-	    else if (sys_strcmp("ws", sub_param) == 0) {
+	    else if (has_prefix("ws", sub_param)) {
 		arg = get_arg(sub_param+2, argv[i+1], &i);
 		if (erts_sched_set_wakeup_other_type(arg) != 0) {
 		    erts_fprintf(stderr, "scheduler wakeup strategy: %s\n",
@@ -1449,6 +1558,22 @@ erl_start(int argc, char **argv)
 		VERBOSE(DEBUG_SYSTEM,
 			("suggested scheduler thread stack size %d kilo words\n",
 			 erts_sched_thread_suggested_stack_size));
+	    }
+	    else if (has_prefix("fwi", sub_param)) {
+		long val;
+		arg = get_arg(sub_param+3, argv[i+1], &i);
+		errno = 0;
+		val = strtol(arg, NULL, 10);
+		if (errno != 0 || val < 0) {
+		    erts_fprintf(stderr,
+				 "bad scheduler forced wakeup "
+				 "interval %s\n",
+				 arg);
+		    erts_usage();
+		}
+#ifdef ERTS_SMP
+		erts_runq_supervision_interval = val;
+#endif
 	    }
 	    else {
 		erts_fprintf(stderr, "bad scheduling option %s\n", argv[i]);
@@ -1630,8 +1755,10 @@ erl_start(int argc, char **argv)
 
     erl_init(ncpu,
 	     proc_tab_sz,
+	     legacy_proc_tab,
 	     port_tab_sz,
-	     port_tab_sz_ignore_files);
+	     port_tab_sz_ignore_files,
+	     legacy_port_tab);
 
     load_preloaded();
     erts_end_staging_code_ix();

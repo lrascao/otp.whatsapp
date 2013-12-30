@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -31,6 +31,146 @@
   <p>This document describes the changes made to the Compiler
     application.</p>
 
+<section><title>Compiler 4.9.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Typo fix ambigous -&gt; ambiguous. Thanks to Leo Correa.</p>
+          <p>
+	    Own Id: OTP-11455</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Lift 'after' blocks to zeroary functions. Thanks to
+	    Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11267</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 4.9.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Expressions such as <c>'B = is_integer(V), if B and B
+	    -&gt; ok end'</c> would crash the compiler.</p>
+          <p>
+	    Own Id: OTP-11240</p>
+        </item>
+        <item>
+          <p>
+	    <c>compile:file2/2</c> with the option
+	    <c>report_errors</c> could return ErrorInfo tuples with
+	    only two elements, while the documentation says that the
+	    ErrorInfo tuple always has three elements. Also updated
+	    the documentation to add that the first element may be
+	    '<c>none</c>' if no line number is applicable.</p>
+          <p>
+	    Own Id: OTP-11304 Aux Id: seq12412 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Fix matching of floating point middle-endian machines.
+	    Thanks to Johannes Weissl.</p>
+          <p>
+	    Own Id: OTP-11201</p>
+        </item>
+        <item>
+          <p>
+	    Restrict inlining of local fun references. Thanks to
+	    Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11211</p>
+        </item>
+        <item>
+          <p>
+	    Silence a misleading warning with some comprehensions.
+	    Thanks to Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11212</p>
+        </item>
+        <item>
+          <p>
+	    Forbid returning a match context in beam_validator.
+	    Thanks to Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11247</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 4.9.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Compiling functions with complex boolean operations in
+	    guards could be very slow. (Thanks to Magnus Muller for
+	    reporting this issue.)</p>
+          <p>
+	    Own Id: OTP-10939</p>
+        </item>
+        <item>
+          <p>
+	    Certain guard expressions used in a receive statement
+	    could cause the compiler to crash.</p>
+          <p>
+	    Own Id: OTP-11119 Aux Id: seq12342 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Fix optimization of some binary comprehensions. Thanks to
+	    Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11005</p>
+        </item>
+        <item>
+          <p>
+	    Use a set to store ref registers in beam_receive. Thanks
+	    to Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11069</p>
+        </item>
+        <item>
+          <p>
+	    Fix renaming of bs_put_string instructions. Thanks to
+	    Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11129</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Compiler 4.9.1</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -45,7 +185,7 @@
         <item>
           <p>
 	    Forbid multiple values in Core Erlang sequence arguments.
-	    Thanks to José Valim and Anthony Ramine.</p>
+	    Thanks to JosÃ© Valim and Anthony Ramine.</p>
           <p>
 	    Own Id: OTP-10818</p>
         </item>
@@ -144,7 +284,7 @@
           <p>
 	    <c>compile:forms/2</c> will now use a
 	    {source,SourceFilePath} to set the source returned by
-	    <c>module_info(compile)</c> (Thanks to José Valim)</p>
+	    <c>module_info(compile)</c> (Thanks to JosÃ© Valim)</p>
           <p>
 	    Own Id: OTP-10150</p>
         </item>
@@ -256,7 +396,7 @@
         <item>
           <p>
 	    Fix typo in `compile' doc: unmatched parenthesis (Thanks
-	    to Ricardo Catalinas Jiménez)</p>
+	    to Ricardo Catalinas JimÃ©nez)</p>
           <p>
 	    Own Id: OTP-9919</p>
         </item>
@@ -757,7 +897,7 @@
 	    (Thanks to Paul Fisher.)</p>
 	    <p>Using filter expressions containing <c>andalso</c> or
 	    <c>orelse</c> in a list comprehension could cause a
-	    compiler crash. (Thanks to Martin Engström.)</p>
+	    compiler crash. (Thanks to Martin EngstrÃ¶m.)</p>
           <p>
 	    Own Id: OTP-8054</p>
         </item>

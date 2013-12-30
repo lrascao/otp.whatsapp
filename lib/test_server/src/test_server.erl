@@ -218,17 +218,14 @@ do_cover_compile1([]) ->
 %% Analyse = {details,Dir} | details | {overview,void()} | overview
 %% Modules = [atom()], the modules to analyse
 %%
-%% Cover analysis. If this is a remote target, analyse_to_file can not be used.
-%% In that case the analyse level 'line' is used instead if Analyse==details.
+%% Cover analysis. If Analyse=={details,Dir} analyse_to_file is used.
 %%
-%% If this is a local target, the test directory is given
-%% (Analyse=={details,Dir}) and analyse_to_file can be used directly.
+%% If Analyse=={overview,Dir} analyse_to_file is not used, only an
+%% overview containing the number of covered/not covered lines in each
+%% module.
 %%
-%% If Analyse==overview | {overview,Dir} analyse_to_file is not used, only
-%% an overview containing the number of covered/not covered lines in each module.
-%%
-%% Also, if a Dir exists, cover data will be exported to a file called
-%% all.coverdata in that directory.
+%% Also, cover data will be exported to a file called all.coverdata in
+%% the given directory.
 %%
 %% Finally, if Stop==true, then cover will be stopped after the
 %% analysis is completed. Stopping cover causes the original (non
@@ -261,24 +258,13 @@ cover_analyse(Analyse,Modules,Stop) ->
 		    Error ->
 			fun(_) -> Error end
 		end;
-	    details ->
-		fun(M) ->
-			case cover:analyse(M,line) of
-			    {ok,Lines} ->
-				{lines,Lines};
-			    Error ->
-				Error
-			end
-		end;
 	    {overview,Dir} ->
 		case cover:export(filename:join(Dir,"all.coverdata")) of
 		    ok ->
 			fun(_) -> undefined end;
 		    Error ->
 			fun(_) -> Error end
-		end;
-	    overview ->
-		fun(_) -> undefined end
+		end
 	end,
     R = pmap(
 	  fun(M) ->
@@ -403,7 +389,6 @@ run_test_case_apply({CaseNum,Mod,Func,Args,Name,
 	    os:putenv("VALGRIND_LOGFILE_INFIX",atom_to_list(Mod)++"."++
 		      atom_to_list(Func)++"-")
     end,
-    test_server_h:testcase({Mod,Func,1}),
     ProcBef = erlang:system_info(process_count),
     Result = run_test_case_apply(Mod, Func, Args, Name, RunInit,
 				 TimetrapData),
@@ -512,10 +497,10 @@ run_test_case_msgloop(#st{ref=Ref,pid=Pid,end_conf_pid=EndConfPid0}=St0) ->
 		 end,
 	    run_test_case_msgloop(St);
 	{sync_apply,From,MFA} ->
-	    sync_local_or_remote_apply(false,From,MFA),
+	    do_sync_apply(false,From,MFA),
 	    run_test_case_msgloop(St0);
 	{sync_apply_proxy,Proxy,From,MFA} ->
-	    sync_local_or_remote_apply(Proxy,From,MFA),
+	    do_sync_apply(Proxy,From,MFA),
 	    run_test_case_msgloop(St0);
 	{comment,NewComment0} ->
 	    NewComment1 = test_server_ctrl:to_string(NewComment0),
@@ -730,6 +715,16 @@ end_conf_timeout(_, _) ->
 call_end_conf(Mod,Func,TCPid,TCExitReason,Loc,Conf,TVal) ->
     Starter = self(),
     Data = {Mod,Func,TCPid,TCExitReason,Loc},
+    case erlang:function_exported(Mod,end_per_testcase,2) of
+	false ->
+	    spawn_link(fun() ->
+			       Starter ! {self(),{call_end_conf,Data,ok}}
+		       end);
+	true ->
+	    do_call_end_conf(Starter,Mod,Func,Data,Conf,TVal)
+    end.
+
+do_call_end_conf(Starter,Mod,Func,Data,Conf,TVal) ->
     EndConfProc =
 	fun() ->
 		process_flag(trap_exit,true), % to catch timetraps
@@ -767,7 +762,8 @@ call_end_conf(Mod,Func,TCPid,TCExitReason,Loc,Conf,TVal) ->
 	end,
     spawn_link(EndConfProc).
 
-spawn_fw_call(Mod,{init_per_testcase,Func},CurrConf,Pid,{timetrap_timeout,TVal}=Why,
+spawn_fw_call(Mod,{init_per_testcase,Func},CurrConf,Pid,
+	      {timetrap_timeout,TVal}=Why,
 	      Loc,SendTo) ->
     FwCall =
 	fun() ->
@@ -919,6 +915,7 @@ run_test_case_eval(Mod, Func, Args0, Name, Ref, RunInit,
     put(test_server_logopts, LogOpts),
     Where = [{Mod,Func}],
     put(test_server_loc, Where),
+
     FWInitResult = test_server_sup:framework_call(init_tc,[Mod,Func,Args0],
 						  {ok,Args0}),
     set_tc_state(running),
@@ -928,7 +925,7 @@ run_test_case_eval(Mod, Func, Args0, Name, Ref, RunInit,
 		run_test_case_eval1(Mod, Func, Args, Name, RunInit, TCCallback);
 	    Error = {error,_Reason} ->
 		NewResult = do_end_tc_call(Mod,Func, {Error,Args0},
-					   {skip,{failed,Error}}),
+					   {auto_skip,{failed,Error}}),
 		{{0,NewResult},Where,[]};
 	    {fail,Reason} ->
 		Conf = [{tc_status,{failed,Reason}} | hd(Args0)],
@@ -939,9 +936,9 @@ run_test_case_eval(Mod, Func, Args0, Name, Ref, RunInit,
 	    Skip = {skip,_Reason} ->
 		NewResult = do_end_tc_call(Mod,Func, {Skip,Args0}, Skip),
 		{{0,NewResult},Where,[]};
-	    {auto_skip,Reason} ->
-		NewResult = do_end_tc_call(Mod,Func, {{skip,Reason},Args0},
-					   {skip,Reason}),
+	    AutoSkip = {auto_skip,_Reason} ->
+		%% special case where a conf case "pretends" to be skipped
+		NewResult = do_end_tc_call(Mod,Func, {AutoSkip,Args0}, AutoSkip),
 		{{0,NewResult},Where,[]}
 	end,
     exit({Ref,Time,Value,Loc,Opts}).
@@ -959,7 +956,8 @@ run_test_case_eval1(Mod, Func, Args, Name, RunInit, TCCallback) ->
 		    {{0,NewRes},Line,[]};
 		{skip_and_save,Reason,SaveCfg} ->
 		    Line = get_loc(),
-		    Conf = [{tc_status,{skipped,Reason}},{save_config,SaveCfg}|hd(Args)],
+		    Conf = [{tc_status,{skipped,Reason}},
+			    {save_config,SaveCfg}|hd(Args)],
 		    NewRes = do_end_tc_call(Mod,Func, {{skip,Reason},[Conf]},
 					    {skip,Reason}),
 		    {{0,NewRes},Line,[]};
@@ -2599,10 +2597,9 @@ purify_format(Format, Args) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%% Generic send functions for communication with host
+%% Apply given function and reply to caller or proxy.
 %%
-sync_local_or_remote_apply(Proxy, From, {M,F,A}) ->
-    %% i'm a local target
+do_sync_apply(Proxy, From, {M,F,A}) ->
     Result = apply(M, F, A),
     if is_pid(Proxy) -> Proxy ! {sync_result_proxy,From,Result};
        true -> From ! {sync_result,Result}

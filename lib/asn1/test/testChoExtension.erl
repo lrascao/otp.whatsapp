@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -31,10 +31,7 @@ extension(_Rules) ->
     %% A trick to encode with another compatible CHOICE type to test reception
     %% extension alternative
 
-    {ok,Bytes2x} = asn1_wrapper:encode('ChoExtension','ChoExt1x',{str,"abc"}),
-    {ok,Val2x} =
-	asn1_wrapper:decode('ChoExtension','ChoExt1',lists:flatten(Bytes2x)),
-    io:format("Choice extension alternative = ~p~n",[Val2x]),
+    roundtrip('ChoExt1x', {str,"abc"}),
 
     roundtrip('ChoExt2', {bool,true}),
     roundtrip('ChoExt2', {int,33}),
@@ -42,10 +39,13 @@ extension(_Rules) ->
     roundtrip('ChoExt3', {int,33}),
     roundtrip('ChoExt4', {str,"abc"}),
 
+    roundtrip('ChoEmptyRoot', {bool,false}),
+    roundtrip('ChoEmptyRoot', {bool,true}),
+    roundtrip('ChoEmptyRoot', {int,0}),
+    roundtrip('ChoEmptyRoot', {int,7}),
+
     ok.
 
 
 roundtrip(Type, Value) ->
-    {ok,Encoded} = 'ChoExtension':encode(Type, Value),
-    {ok,Value} = 'ChoExtension':decode(Type, Encoded),
-    ok.
+    asn1_test_lib:roundtrip('ChoExtension', Type, Value).

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -30,6 +30,70 @@
   </header>
   <p>This document describes the changes made to HiPE.</p>
 
+<section><title>Hipe 3.10.2.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed a dialyzer crash when using remote types in the
+	    tail position of a maybe_improper_list/2 type. Thanks to
+	    Kostis Sagonas</p>
+          <p>
+	    Own Id: OTP-11374</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Hipe 3.10.2.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The encoding of the <c>notes.xml</c> file has been
+	    changed from latin1 to utf-8 to avoid future merge
+	    problems.</p>
+          <p>
+	    Own Id: OTP-11310</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Hipe 3.10.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Fix the title of hipe_app documentation page. Thanks to
+	    Loïc Hoguin.</p>
+          <p>
+	    Own Id: OTP-10904</p>
+        </item>
+        <item>
+          <p>
+	    Fix native code compiler crash involving bs_match_string.
+	    Thanks to Kostis Sagonas.</p>
+          <p>
+	    Own Id: OTP-10985</p>
+        </item>
+        <item>
+          <p>
+	    Loosen the assumptions of code that handles escaping
+	    functions. Thanks to Kostis Sagonas</p>
+          <p>
+	    Own Id: OTP-11031</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Hipe 3.10.1</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -46,7 +110,7 @@
           <p>
 	    Fix bug in hipe compiled code related to the handling of
 	    <c>is_number/1</c>. (Thanks to Sebastian Egner and
-	    Johannes Wei�l for minimal test code and Kostis for quick
+	    Johannes Weißl for minimal test code and Kostis for quick
 	    patch)</p>
           <p>
 	    Own Id: OTP-10897</p>

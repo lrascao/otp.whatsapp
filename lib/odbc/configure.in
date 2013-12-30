@@ -105,6 +105,7 @@ AC_CHECK_FUNC(gethostbyname, , AC_CHECK_LIB(nsl, main, [LIBS="$LIBS -lnsl"]))
 dnl Checks for header files.
 AC_HEADER_STDC
 AC_CHECK_HEADERS([fcntl.h netdb.h stdlib.h string.h sys/socket.h winsock2.h])
+AC_CHECK_HEADERS([sql.h, sqlext.h], [odbc_required_headers=yes], [odbc_required_headers=no])
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
@@ -167,7 +168,8 @@ AC_SUBST(TARGET_FLAGS)
 			AC_CHECK_SIZEOF(void *)
 			AC_MSG_CHECKING([for odbc in standard locations])
 			for rdir in /usr/local/odbc /usr/local /usr/odbc \
-			            /usr /opt/local/pgm/odbc /usr/local/pgm/odbc; do
+			            /usr /opt/local/pgm/odbc /usr/local/pgm/odbc \
+			            "$with_odbc"; do
 			  test -f "$erl_xcomp_isysroot$rdir/include/sql.h" || continue
 			  is_odbc_std_location=yes
 			  libdir="$erl_xcomp_sysroot$rdir/lib"
@@ -202,6 +204,10 @@ AC_SUBST(TARGET_FLAGS)
 	  ;;
 esac
 
+if test $odbc_required_headers = no;  then
+    AC_MSG_WARN(["ODBC library - header check failed"])
+    echo "ODBC library - header check failed" > $ERL_TOP/lib/odbc/SKIP
+fi
 if test $odbc_lib_link_success = no;  then
     AC_MSG_WARN(["ODBC library - link check failed"])
     echo "ODBC library - link check failed" > $ERL_TOP/lib/odbc/SKIP

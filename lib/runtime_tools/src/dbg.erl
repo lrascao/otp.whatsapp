@@ -551,8 +551,7 @@ c(M, F, A, Flags) ->
 		    stop_clear(),
 		    {error, Reason};
 		{Pid, Res} ->
-		    erlang:demonitor(Mref),
-		    receive {'DOWN', Mref, _, _, _} -> ok after 0 -> ok end,
+		    erlang:demonitor(Mref, [flush]),
 		    %% 'sleep' prevents the tracer (recv_all_traces) from
 		    %% receiving garbage {'EXIT',...} when dbg i stopped.
 		    timer:sleep(1),
@@ -592,8 +591,7 @@ req(R) ->
 	{'DOWN', Mref, _, _, _} -> % If server died
 	    exit(dbg_server_crash);
 	{dbg, Reply} ->
-	    erlang:demonitor(Mref),
-	    receive {'DOWN', Mref, _, _, _} -> ok after 0 -> ok end,
+	    erlang:demonitor(Mref, [flush]),
 	    Reply
     end.
 
@@ -1115,7 +1113,7 @@ transform_flags([sos|Tail],Acc) -> transform_flags(Tail,[set_on_spawn|Acc]);
 transform_flags([sol|Tail],Acc) -> transform_flags(Tail,[set_on_link|Acc]);
 transform_flags([sofs|Tail],Acc) -> transform_flags(Tail,[set_on_first_spawn|Acc]);
 transform_flags([sofl|Tail],Acc) -> transform_flags(Tail,[set_on_first_link|Acc]);
-transform_flags([all|_],_Acc) -> all();
+transform_flags([all|_],_Acc) -> all()--[silent];
 transform_flags([F|Tail]=List,Acc) when is_atom(F) ->
     case lists:member(F, all()) of
 	true -> transform_flags(Tail,[F|Acc]);
@@ -1126,7 +1124,7 @@ transform_flags(Bad,_Acc) -> {error,{bad_flags,Bad}}.
 all() ->
     [send,'receive',call,procs,garbage_collection,running,
      set_on_spawn,set_on_first_spawn,set_on_link,set_on_first_link,
-     timestamp,arity,return_to].
+     timestamp,arity,return_to,silent].
 
 display_info([Node|Nodes]) ->
     io:format("~nNode ~w:~n",[Node]),

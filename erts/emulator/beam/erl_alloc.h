@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2002-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2002-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -54,6 +54,16 @@ void erts_sys_alloc_init(void);
 void *erts_sys_alloc(ErtsAlcType_t, void *, Uint);
 void *erts_sys_realloc(ErtsAlcType_t, void *, void *, Uint);
 void erts_sys_free(ErtsAlcType_t, void *, void *);
+#if ERTS_HAVE_ERTS_SYS_ALIGNED_ALLOC
+/*
+ * Note 'alignment' must remain the same in calls to
+ * 'erts_sys_aligned_realloc()' and 'erts_sys_aligned_free()'
+ * as in the initial call to 'erts_sys_aligned_alloc()'.
+ */
+void *erts_sys_aligned_alloc(UWord alignment, UWord size);
+void *erts_sys_aligned_realloc(UWord alignment, void *ptr, UWord size, UWord old_size);
+void erts_sys_aligned_free(UWord alignment, void *ptr);
+#endif
 
 Eterm erts_memory(int *, void *, void *, Eterm);
 Eterm erts_allocated_areas(int *, void *, void *);
@@ -65,7 +75,7 @@ Eterm erts_allocator_options(void *proc);
 struct process;
 
 int erts_request_alloc_info(struct process *c_p, Eterm ref, Eterm allocs,
-			    int only_sz);
+			    int only_sz, int internal);
 
 #define ERTS_ALLOC_INIT_DEF_OPTS_INITER {0}
 typedef struct {
@@ -100,14 +110,6 @@ UWord erts_alc_test(UWord,
 
 #define ERTS_ALC_MIN_LONG_LIVED_TIME	(10*60*1000)
 
-#if HALFWORD_HEAP
-#define ERTS_IS_SBMBC_ALLOCATOR_NO__(NO) \
-  ((NO) == ERTS_ALC_A_SBMBC || (NO) == ERTS_ALC_A_SBMBC_LOW)
-#else
-#define ERTS_IS_SBMBC_ALLOCATOR_NO__(NO) \
-  ((NO) == ERTS_ALC_A_SBMBC)
-#endif
-
 typedef struct {
     int alloc_util;
     int enabled;
@@ -134,6 +136,18 @@ typedef struct {
 } ErtsAllocatorThrSpec_t;
 
 extern ErtsAllocatorThrSpec_t erts_allctr_thr_spec[ERTS_ALC_A_MAX+1];
+
+typedef struct ErtsAllocatorWrapper_t_ {
+    void (*lock)(void);
+    void (*unlock)(void);
+    struct ErtsAllocatorWrapper_t_* next;
+}ErtsAllocatorWrapper_t;
+ErtsAllocatorWrapper_t *erts_allctr_wrappers;
+extern int erts_allctr_wrapper_prelocked;
+extern erts_tsd_key_t erts_allctr_prelock_tsd_key;
+void erts_allctr_wrapper_prelock_init(ErtsAllocatorWrapper_t* wrapper);
+void erts_allctr_wrapper_pre_lock(void);
+void erts_allctr_wrapper_pre_unlock(void);
 
 void erts_alloc_register_scheduler(void *vesdp);
 #ifdef ERTS_SMP
@@ -188,6 +202,7 @@ void *erts_realloc(ErtsAlcType_t type, void *ptr, Uint size);
 void erts_free(ErtsAlcType_t type, void *ptr);
 void *erts_alloc_fnf(ErtsAlcType_t type, Uint size);
 void *erts_realloc_fnf(ErtsAlcType_t type, void *ptr, Uint size);
+int erts_is_allctr_wrapper_prelocked(void);
 
 #endif /* #if !ERTS_ALC_DO_INLINE */
 
@@ -256,6 +271,13 @@ void *erts_realloc_fnf(ErtsAlcType_t type, void *ptr, Uint size)
 	erts_allctrs[ERTS_ALC_T2A(type)].extra,
 	ptr,
 	size);
+}
+
+ERTS_ALC_INLINE
+int erts_is_allctr_wrapper_prelocked(void)
+{
+    return erts_allctr_wrapper_prelocked                 /* locked */
+	&& !!erts_tsd_get(erts_allctr_prelock_tsd_key);  /* by me  */
 }
 
 #endif /* #if ERTS_ALC_DO_INLINE || defined(ERTS_ALC_INTERNAL__) */

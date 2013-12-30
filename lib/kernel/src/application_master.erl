@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2009. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -76,13 +76,8 @@ call(AppMaster, Req) ->
 	{'DOWN', Ref, process, _, _Info} ->
 	    ok;
 	{Tag, Res} ->
-	    erlang:demonitor(Ref),
-	    receive 
-		{'DOWN', Ref, process, _, _Info} -> 
-		    Res
-	    after 0 ->
-		    Res
-	    end
+	    erlang:demonitor(Ref, [flush]),
+	    Res
     end.
 
 %%%-----------------------------------------------------------------

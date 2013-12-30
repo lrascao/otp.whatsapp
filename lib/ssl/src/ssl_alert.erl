@@ -29,12 +29,23 @@
 
 -include("ssl_alert.hrl").
 -include("ssl_record.hrl").
+-include("ssl_internal.hrl").
 
--export([alert_txt/1, reason_code/2]).
+-export([encode/3, alert_txt/1, reason_code/2]).
 
 %%====================================================================
 %% Internal application API
 %%====================================================================
+
+%%--------------------------------------------------------------------
+-spec encode(#alert{}, tls_version(), #connection_states{}) -> 
+		    {iolist(), #connection_states{}}.
+%%
+%% Description: 
+%%--------------------------------------------------------------------
+encode(#alert{} = Alert, Version, ConnectionStates) ->
+    ssl_record:encode_alert_record(Alert, Version, ConnectionStates).
+
 %%--------------------------------------------------------------------
 -spec reason_code(#alert{}, client | server) -> closed | {essl, string()}.
 %%
@@ -112,4 +123,6 @@ description_txt(?INTERNAL_ERROR) ->
 description_txt(?USER_CANCELED) ->
     "user canceled";
 description_txt(?NO_RENEGOTIATION) ->
-    "no renegotiation".
+    "no renegotiation";
+description_txt(?UNKNOWN_PSK_IDENTITY) ->
+    "unknown psk identity".

@@ -361,6 +361,10 @@ extern ethr_runtime_t ethr_runtime__;
 #  endif
 #endif /* !ETHR_DISABLE_NATIVE_IMPLS */
 
+#if !defined(ETHR_HAVE_NATIVE_ATOMIC32) && !defined(ETHR_HAVE_NATIVE_ATOMIC64) && !defined(ETHR_DISABLE_NATIVE_IMPLS) && defined(ETHR_SMP_REQUIRE_NATIVE_IMPLS)
+#error "No native ethread implementation found. If you want to use fallbacks you have to disable native ethread support with configure."
+#endif
+
 #include "ethr_atomics.h" /* The atomics API */
 
 #if defined(__GNUC__)
@@ -411,6 +415,7 @@ extern ethr_runtime_t ethr_runtime__;
 
 #ifdef VALGRIND  /* mutex as fallback for spinlock for VALGRIND */
 #  undef ETHR_HAVE_NATIVE_SPINLOCKS
+#  undef ETHR_HAVE_NATIVE_RWSPINLOCKS
 #else
 #  include "ethr_optimized_fallbacks.h"
 #endif
@@ -693,7 +698,7 @@ static ETHR_INLINE int
 ETHR_INLINE_FUNC_NAME_(ethr_rwlock_destroy)(ethr_rwlock_t *lock)
 {
 #ifdef ETHR_HAVE_NATIVE_RWSPINLOCKS
-    return 0;
+    return ethr_native_rwlock_destroy(lock);
 #else
     return ethr_rwmutex_destroy((ethr_rwmutex *) lock);
 #endif

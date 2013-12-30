@@ -329,6 +329,13 @@ script_start1(Parent, Args) ->
 			application:set_env(common_test, basic_html, true),
 			true
 		end,
+    %% disable_log_cache - used by ct_logs
+    case proplists:get_value(disable_log_cache, Args) of
+	undefined ->
+	    application:set_env(common_test, disable_log_cache, false);
+	_ ->
+	    application:set_env(common_test, disable_log_cache, true)
+    end,
 
     Opts = #opts{label = Label, profile = Profile,
 		 vts = Vts, shell = Shell,
@@ -395,7 +402,8 @@ script_start2(Opts = #opts{vts = undefined,
 	    Relaxed = get_start_opt(allow_user_terms, true, false, Args),
 	    case catch ct_testspec:collect_tests_from_file(Specs1, Relaxed) of
 		{E,Reason} when E == error ; E == 'EXIT' ->
-		    {error,Reason};
+		    StackTrace = erlang:get_stacktrace(),
+		    {error,{invalid_testspec,{Reason,StackTrace}}};
 		TestSpecData ->
 		    execute_all_specs(TestSpecData, Opts, Args, [])
 	    end;
@@ -771,9 +779,9 @@ script_usage() ->
 	      "\n\t[-scale_timetraps]"
 	      "\n\t[-create_priv_dir auto_per_run | auto_per_tc | manual_per_tc]"
 	      "\n\t[-basic_html]"
-	      "\n\t[-repeat N [-force_stop]] |"
-	      "\n\t[-duration HHMMSS [-force_stop]] |"
-	      "\n\t[-until [YYMoMoDD]HHMMSS [-force_stop]]\n\n"),
+	      "\n\t[-repeat N] |"
+	      "\n\t[-duration HHMMSS [-force_stop [skip_rest]]] |"
+	      "\n\t[-until [YYMoMoDD]HHMMSS [-force_stop [skip_rest]]]\n\n"),
     io:format("Run tests using test specification:\n\n"
 	      "\tct_run -spec TestSpec1 TestSpec2 .. TestSpecN"
 	      "\n\t[-config ConfigFile1 ConfigFile2 .. ConfigFileN]"
@@ -795,9 +803,9 @@ script_usage() ->
 	      "\n\t[-scale_timetraps]"
 	      "\n\t[-create_priv_dir auto_per_run | auto_per_tc | manual_per_tc]"
 	      "\n\t[-basic_html]"
-	      "\n\t[-repeat N [-force_stop]] |"
-	      "\n\t[-duration HHMMSS [-force_stop]] |"
-	      "\n\t[-until [YYMoMoDD]HHMMSS [-force_stop]]\n\n"),
+	      "\n\t[-repeat N] |"
+	      "\n\t[-duration HHMMSS [-force_stop [skip_rest]]] |"
+	      "\n\t[-until [YYMoMoDD]HHMMSS [-force_stop [skip_rest]]]\n\n"),
     io:format("Refresh the HTML index files:\n\n"
 	      "\tct_run -refresh_logs [LogDir]"
 	      "[-logdir LogDir] "
@@ -1039,6 +1047,13 @@ run_test2(StartOpts) ->
 		BasicHtmlBool		
     end,
 
+    case proplists:get_value(disable_log_cache, StartOpts) of
+	undefined ->
+	    application:set_env(common_test, disable_log_cache, false);
+	DisableCacheBool ->
+	    application:set_env(common_test, disable_log_cache, DisableCacheBool)
+    end,
+
     %% stepped execution
     Step = get_start_opt(step, value, StartOpts),
 
@@ -1087,7 +1102,8 @@ run_spec_file(Relaxed,
     AbsSpecs1 = get_start_opt(join_specs, [AbsSpecs], AbsSpecs, StartOpts),
     case catch ct_testspec:collect_tests_from_file(AbsSpecs1, Relaxed) of
 	{Error,CTReason} when Error == error ; Error == 'EXIT' ->
-	    exit({error,CTReason});
+	    StackTrace = erlang:get_stacktrace(),
+	    exit({error,{invalid_testspec,{CTReason,StackTrace}}});
 	TestSpecData ->
 	    run_all_specs(TestSpecData, Opts, StartOpts, [])
     end.
@@ -1867,7 +1883,7 @@ verify_suites(TestSuites) ->
 								  atom_to_list(
 								    Suite)),
 						io:format(user,
-							  "Suite ~w not found"
+							  "Suite ~w not found "
 							  "in directory ~ts~n",
 							  [Suite,TestDir]),
 						{Found,[{DS,[Name]}|NotFound]}
@@ -2933,6 +2949,8 @@ opts2args(EnvStartOpts) ->
 			  [];
 		     ({create_priv_dir,PD}) when is_atom(PD) ->
 			  [{create_priv_dir,[atom_to_list(PD)]}];
+		     ({force_stop,skip_rest}) ->
+			  [{force_stop,["skip_rest"]}];
 		     ({force_stop,true}) ->
 			  [{force_stop,[]}];
 		     ({force_stop,false}) ->

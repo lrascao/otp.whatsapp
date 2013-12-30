@@ -93,13 +93,13 @@ case 100: { // wxEvtHandler::Connect
   int eventType = wxeEventTypeFromAtom(bp); bp += *eventTypeLen;
   char *class_name = bp; bp+= *class_nameLen;
   if(eventType > 0 ) {
-     wxeCallbackData * Evt_cb = new wxeCallbackData(Ecmd.caller,(void *) This,
-     		       	      	    		    class_name,*fun_cb, 
-		                                    *skip, userData);
-     This->Connect((int) *winid,(int) *lastId,eventType, 
-	           (wxObjectEventFunction)(wxEventFunction) &wxeEvtListener::forward, 
-	           Evt_cb, Listener);
-     rt.addAtom("ok");
+    wxeCallbackData * Evt_cb = new wxeCallbackData(Ecmd.caller,getRef(This, memenv),
+    		    		       	      	   class_name,*fun_cb,
+		                                   *skip, userData, Listener);
+    This->Connect((int) *winid,(int) *lastId,eventType,
+	          (wxObjectEventFunction)(wxEventFunction) &wxeEvtListener::forward,
+	          Evt_cb, Listener);
+    rt.addAtom("ok");
   } else {
     rt.addAtom("badarg");
     rt.addAtom("event_type");
@@ -2216,6 +2216,12 @@ case wxPanel_InitDialog: { // wxPanel::InitDialog
  wxPanel *This = (wxPanel *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->InitDialog();
+ break;
+}
+case wxPanel_SetFocusIgnoringChildren: { // wxPanel::SetFocusIgnoringChildren
+ wxPanel *This = (wxPanel *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetFocusIgnoringChildren();
  break;
 }
 case wxScrolledWindow_new_0: { // wxScrolledWindow::wxScrolledWindow
@@ -8849,16 +8855,14 @@ case wxStatusBar_Create: { // wxStatusBar::Create
  break;
 }
 case wxStatusBar_GetFieldRect: { // wxStatusBar::GetFieldRect
+ wxRect rect;
  wxStatusBar *This = (wxStatusBar *) getPtr(bp,memenv); bp += 4;
  int * i = (int *) bp; bp += 4;
- int * rectX = (int *) bp; bp += 4;
- int * rectY = (int *) bp; bp += 4;
- int * rectW = (int *) bp; bp += 4;
- int * rectH = (int *) bp; bp += 4;
- wxRect rect = wxRect(*rectX,*rectY,*rectW,*rectH);
  if(!This) throw wxe_badarg(0);
  bool Result = This->GetFieldRect(*i,rect);
  rt.addBool(Result);
+ rt.add(rect);
+ rt.addTupleCount(2);
  break;
 }
 case wxStatusBar_GetFieldsCount: { // wxStatusBar::GetFieldsCount
@@ -15133,7 +15137,7 @@ case wxListBox_Set: { // wxListBox::Set
  }
  bp += (8-((0+ itemsASz) & 7 )) & 7;
  if(!This) throw wxe_badarg(0);
- This->Set(items,(void **) NULL);
+ This->Set(items);
  break;
 }
 case wxListBox_HitTest: { // wxListBox::HitTest
@@ -31360,7 +31364,7 @@ case wxAuiManagerEvent_CanVeto: { // wxAuiManagerEvent::CanVeto
 }
 case wxLogNull_new: { // wxLogNull::wxLogNull
  wxLogNull * Result = new wxLogNull();
- newPtr((void *) Result, 224, memenv);
+ newPtr((void *) Result, 225, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxLogNull");
  break;
 }
@@ -31450,7 +31454,7 @@ void WxeApp::delete_object(void *ptr, wxeRefData *refd) {
   case 211: /* delete (wxFileDataObject *) ptr;These objects must be deleted by owner object */ break;
   case 212: /* delete (wxTextDataObject *) ptr;These objects must be deleted by owner object */ break;
   case 213: /* delete (wxBitmapDataObject *) ptr;These objects must be deleted by owner object */ break;
-  case 224: delete (wxLogNull *) ptr; break;
+  case 225: delete (wxLogNull *) ptr; break;
   default: delete (wxObject *) ptr;
 }}
 

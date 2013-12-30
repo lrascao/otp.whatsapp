@@ -103,6 +103,10 @@
 %% Time to lay low before restarting a dead service.
 -define(RESTART_SLEEP, 2000).
 
+%% Test for a valid timeout.
+-define(IS_UINT32(N),
+        is_integer(N) andalso 0 =< N andalso 0 == N bsr 32).
+
 %% A minimal diameter_caps for checking for valid capabilities values.
 -define(EXAMPLE_CAPS,
         #diameter_caps{origin_host = "TheHost",
@@ -490,13 +494,11 @@ stop(SvcName) ->
 %% has many.
 
 add(SvcName, Type, Opts) ->
-    %% Ensure usable capabilities. diameter_service:merge_service/2
-    %% depends on this.
-    lists:foreach(fun(Os) ->
-                          is_list(Os) orelse ?THROW({capabilities, Os}),
-                          ok = encode_CER(Os)
-                  end,
-                  [Os || {capabilities, Os} <- Opts, is_list(Os)]),
+    %% Ensure acceptable transport options. This won't catch all
+    %% possible errors (faulty callbacks for example) but it catches
+    %% many. diameter_service:merge_service/2 depends on usable
+    %% capabilities for example.
+    ok = transport_opts(Opts),
 
     Ref = make_ref(),
     T = {Ref, Type, Opts},
@@ -513,6 +515,66 @@ add(SvcName, Type, Opts) ->
         {error, _} = No ->
             No
     end.
+
+transport_opts(Opts) ->
+    lists:foreach(fun(T) -> opt(T) orelse ?THROW({invalid, T}) end, Opts).
+
+opt({transport_module, M}) ->
+    is_atom(M);
+
+opt({transport_config, _, Tmo}) ->
+    ?IS_UINT32(Tmo) orelse Tmo == infinity;
+
+opt({applications, As}) ->
+    is_list(As);
+
+opt({capabilities, Os}) ->
+    is_list(Os) andalso ok == encode_CER(Os);
+
+opt({capx_timeout, Tmo}) ->
+    ?IS_UINT32(Tmo);
+
+opt({length_errors, T}) ->
+    lists:member(T, [exit, handle, discard]);
+
+opt({K, Tmo})
+  when K == reconnect_timer;  %% deprecated
+       K == connect_timer ->
+    ?IS_UINT32(Tmo);
+
+opt({watchdog_timer, {M,F,A}})
+  when is_atom(M), is_atom(F), is_list(A) ->
+    true;
+opt({watchdog_timer, Tmo}) ->
+    ?IS_UINT32(Tmo);
+
+opt({watchdog_config, L}) ->
+    is_list(L) andalso lists:all(fun wdopt/1, L);
+
+opt({spawn_opt, Opts}) ->
+    is_list(Opts);
+
+%% Options that we can't validate.
+opt({K, _})
+  when K == transport_config;
+       K == capabilities_cb;
+       K == disconnect_cb;
+       K == private ->
+    true;
+
+%% Anything else, which is ignored by us. This makes options sensitive
+%% to spelling mistakes but arbitrary options are passed by some users
+%% as a way to identify transports. (That is, can't just do away with
+%% it.)
+opt(_) ->
+    true.
+
+wdopt({K,N}) ->
+    (K == okay orelse K == suspect) andalso is_integer(N) andalso 0 =< N;
+wdopt(_) ->
+    false.
+
+%% start_transport/2
 
 start_transport(SvcName, T) ->
     case diameter_service:start_transport(SvcName, T) of
@@ -557,54 +619,74 @@ stop_transport(SvcName, Refs) ->
 %% make_config/2
 
 make_config(SvcName, Opts) ->
-    Apps = init_apps(Opts),
+    AppOpts = [T || {application, _} = T <- Opts],
+    Apps = init_apps(AppOpts),
+
     [] == Apps andalso ?THROW(no_apps),
 
     %% Use the fact that diameter_caps has the same field names as CER.
     Fields = ?BASE:'#info-'(diameter_base_CER) -- ['AVP'],
 
-    COpts = [T || {K,_} = T <- Opts, lists:member(K, Fields)],
-    Caps = make_caps(#diameter_caps{}, COpts),
+    CapOpts = [T || {K,_} = T <- Opts, lists:member(K, Fields)],
+    Caps = make_caps(#diameter_caps{}, CapOpts),
 
-    ok = encode_CER(COpts),
+    ok = encode_CER(CapOpts),
 
-    Os = split(Opts, fun opt/2, [{false, share_peers},
-                                 {false, use_shared_peers},
-                                 {false, monitor},
-                                 {?NOMASK, sequence},
-                                 {nodes, restrict_connections}]),
-    %% share_peers and use_shared_peers are currently undocumented.
+    SvcOpts = make_opts((Opts -- AppOpts) -- CapOpts,
+                        [{false, share_peers},
+                         {false, use_shared_peers},
+                         {false, monitor},
+                         {?NOMASK, sequence},
+                         {nodes, restrict_connections},
+                         {[], spawn_opt}]),
 
     #service{name = SvcName,
              rec = #diameter_service{applications = Apps,
                                      capabilities = Caps},
-             options = Os}.
+             options = SvcOpts}.
 
-split(Opts, F, Defs) ->
-    [{K, F(K, get_opt(K, Opts, D))} || {D,K} <- Defs].
+make_opts(Opts, Defs) ->
+    Known = [{K, get_opt(K, Opts, D)} || {D,K} <- Defs],
+    Unknown = Opts -- Known,
+
+    [] == Unknown orelse ?THROW({invalid, hd(Unknown)}),
+
+    [{K, opt(K,V)} || {K,V} <- Known].
+
+opt(spawn_opt, L)
+  when is_list(L) ->
+    L;
 
 opt(K, false = B)
   when K /= sequence ->
     B;
 
 opt(K, true = B)
-  when K == share_peer;
+  when K == share_peers;
        K == use_shared_peers ->
     B;
+
+opt(restrict_connections, T)
+  when T == node;
+       T == nodes ->
+    T;
+
+opt(K, T)
+  when (K == share_peers
+        orelse K == use_shared_peers
+        orelse K == restrict_connections), ([] == T
+                                            orelse is_atom(hd(T))) ->
+    T;
 
 opt(monitor, P)
   when is_pid(P) ->
     P;
 
-opt(restrict_connections, T)
-  when T == node;
-       T == nodes;
-       T == [];
-       is_atom(hd(T)) ->
-    T;
-
-opt(restrict_connections = K, F) ->
-    try diameter_lib:eval(F) of  %% no guarantee that it won't fail later
+opt(K, F)
+  when K == restrict_connections;
+       K == share_peers;
+       K == use_shared_peers ->
+    try diameter_lib:eval(F) of  %% but no guarantee that it won't fail later
         Nodes when is_list(Nodes) ->
             F;
         V ->
@@ -629,7 +711,7 @@ opt(K, _) ->
     ?THROW({value, K}).
 
 sequence({H,N} = T)
-  when 0 =< N, N =< 32, 0 =< H, 0 == H bsr N ->
+  when 0 =< N, N =< 32, 0 =< H, 0 == H bsr (32-N) ->
     T;
 
 sequence(_) ->
@@ -664,8 +746,8 @@ encode_CER(Opts) ->
 init_apps(Opts) ->
     lists:foldl(fun app_acc/2, [], lists:reverse(Opts)).
 
-app_acc({application, Opts}, Acc) ->
-    is_list(Opts) orelse ?THROW({application, Opts}),
+app_acc({application, Opts} = T, Acc) ->
+    is_list(Opts) orelse ?THROW(T),
 
     [Dict, Mod] = get_opt([dictionary, module], Opts),
     Alias = get_opt(alias, Opts, Dict),
@@ -681,9 +763,7 @@ app_acc({application, Opts}, Acc) ->
                    mutable = M,
                    options = [{answer_errors, A},
                               {request_errors, P}]}
-     | Acc];
-app_acc(_, Acc) ->
-    Acc.
+     | Acc].
 
 init_mod(#diameter_callback{} = R) ->
     init_mod([diameter_callback, R]);

@@ -25,12 +25,12 @@ Version 1.1, (the "License"); you may not use this file except in
 compliance with the License. You should have received a copy of the
 Erlang Public License along with this software. If not, it can be
 retrieved online at http://www.erlang.org/.
-    
+
 Software distributed under the License is distributed on an "AS IS"
 basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
 the License for the specific language governing rights and limitations
 under the License.
-    
+
 </legalnotice>
 
 <title>diameter_dict(4)</title>
@@ -263,15 +263,14 @@ dictionary's definitions but the former makes for easier reuse.</p>
 
 <p>
 All dictionaries should typically inherit &the_rfc; AVPs from
-<c>diameter_gen_base_rfc3588</c>.</p>
+<c>diameter_gen_base_rfc6733</c>.</p>
 
 <p>
 Example:</p>
 
 <pre>
-@inherits diameter_gen_base_rfc3588
+@inherits diameter_gen_base_rfc6733
 </pre>
-
 </item>
 
 <marker id="avp_types"/>
@@ -432,7 +431,7 @@ equivalent to specifying it with <c>@avp_vendor_id</c>.</p>
 Defines values of AVP Name having type Enumerated.
 Section content consists of names and corresponding integer values.
 Integer values can be prefixed with 0x to be interpreted as
-hexidecimal.</p>
+hexadecimal.</p>
 
 <p>
 Note that the AVP in question can be defined in an inherited
@@ -610,7 +609,9 @@ UTF8String() = [integer()]
 <p>
 List elements are the UTF-8 encodings of the individual characters
 in the string.
-Invalid codepoints will result in encode/decode failure.</p>
+Invalid codepoints will result in encode/decode failure.
+On encode, a UTF8String() can be specified as a binary, or as a nested
+list of binaries and codepoints.</p>
 
 <marker id="DiameterIdentity"/>
 <pre>

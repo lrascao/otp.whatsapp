@@ -151,9 +151,10 @@ static ERTS_INLINE void
 schedule_port_task_free(ErtsPortTask *ptp)
 {
 #ifdef ERTS_SMP
-    erts_schedule_thr_prgr_later_op(call_port_task_free,
-				    (void *) ptp,
-				    &ptp->u.release);
+    erts_schedule_thr_prgr_later_cleanup_op(call_port_task_free,
+					    (void *) ptp,
+					    &ptp->u.release,
+					    sizeof(ErtsPortTask));
 #else
     port_task_free(ptp);
 #endif
@@ -551,6 +552,19 @@ set_handle(ErtsPortTask *ptp, ErtsPortTaskHandle *pthp)
     }
 }
 
+static ERTS_INLINE void
+set_tmp_handle(ErtsPortTask *ptp, ErtsPortTaskHandle *pthp)
+{
+    ptp->u.alive.handle = NULL;
+    if (pthp) {
+	/*
+	 * IMPORTANT! Task either need to be aborted, or task handle
+	 * need to be detached before thread progress has been made.
+	 */
+	erts_smp_atomic_set_relb(pthp, (erts_aint_t) ptp);
+    }
+}
+
 
 /*
  * Busy port queue management
@@ -772,9 +786,10 @@ static void
 schedule_port_task_handle_list_free(ErtsPortTaskHandleList *pthlp)
 {
 #ifdef ERTS_SMP
-    erts_schedule_thr_prgr_later_op(free_port_task_handle_list,
-				    (void *) pthlp,
-				    &pthlp->u.release);
+    erts_schedule_thr_prgr_later_cleanup_op(free_port_task_handle_list,
+					    (void *) pthlp,
+					    &pthlp->u.release,
+					    sizeof(ErtsPortTaskHandleList));
 #else
     erts_free(ERTS_ALC_T_PT_HNDL_LIST, pthlp);
 #endif
@@ -1180,6 +1195,13 @@ erl_drv_consume_timeslice(ErlDrvPort dprt, int percent)
     return 1;
 }
 
+void
+erts_port_task_tmp_handle_detach(ErtsPortTaskHandle *pthp)
+{
+    ERTS_SMP_LC_ASSERT(erts_thr_progress_lc_is_delaying());
+    reset_port_task_handle(pthp);
+}
+
 /*
  * Abort a scheduled task.
  */
@@ -1204,7 +1226,7 @@ erts_port_task_abort(ErtsPortTaskHandle *pthp)
 	ERTS_SMP_READ_MEMORY_BARRIER;
 	old_state = erts_smp_atomic32_read_nob(&ptp->state);
 	if (old_state == ERTS_PT_STATE_SCHEDULED) {
-	    ASSERT(saved_pthp == pthp);
+	    ASSERT(!saved_pthp || saved_pthp == pthp);
 	}
 #endif
 
@@ -1224,9 +1246,6 @@ erts_port_task_abort(ErtsPortTaskHandle *pthp)
 		ASSERT(erts_smp_atomic_read_nob(
 			   &erts_port_task_outstanding_io_tasks) > 0);
 		erts_smp_atomic_dec_relb(&erts_port_task_outstanding_io_tasks);
-		break;
-	    case ERTS_PORT_TASK_PROC_SIG:
-		ERTS_INTERNAL_ERROR("Aborted process to port signal");
 		break;
 	    default:
 		break;
@@ -1402,7 +1421,6 @@ erts_port_task_schedule(Eterm id,
     }
     case ERTS_PORT_TASK_PROC_SIG: {
 	va_list argp;
-	ASSERT(!pthp);
 	va_start(argp, type);
 	sigdp = va_arg(argp, ErtsProc2PortSigData *);
 	ptp = p2p_sig_data_to_task(sigdp);
@@ -1410,7 +1428,7 @@ erts_port_task_schedule(Eterm id,
  	ptp->u.alive.flags |= va_arg(argp, int);
 	va_end(argp);
 	if (!(ptp->u.alive.flags & ERTS_PT_FLG_NOSUSPEND))
-	    set_handle(ptp, pthp);
+	    set_tmp_handle(ptp, pthp);
 	else {
 	    ns_pthlp = erts_alloc(ERTS_ALC_T_PT_HNDL_LIST,
 				  sizeof(ErtsPortTaskHandleList));
@@ -1576,6 +1594,7 @@ erts_port_task_execute(ErtsRunQueue *runq, Port **curr_port_pp)
     int fpe_was_unmasked;
     erts_aint32_t state;
     int active;
+    Uint64 start_time = 0;
 
     ERTS_SMP_LC_ASSERT(erts_smp_lc_runq_is_locked(runq));
 
@@ -1636,6 +1655,10 @@ erts_port_task_execute(ErtsRunQueue *runq, Port **curr_port_pp)
 	}
 
 	reset_handle(ptp);
+
+	if (erts_system_monitor_long_schedule != 0) {
+	    start_time = erts_timestamp_millis();
+	}
 
 	ERTS_SMP_LC_ASSERT(erts_lc_is_port_locked(pp));
 	ERTS_SMP_CHK_NO_PROC_LOCKS;
@@ -1704,6 +1727,14 @@ erts_port_task_execute(ErtsRunQueue *runq, Port **curr_port_pp)
 	}
 
 	reds += erts_port_driver_callback_epilogue(pp, &state);
+
+	if (start_time != 0) {
+	    Sint64 diff = erts_timestamp_millis() - start_time;
+	    if (diff > 0 && (Uint) diff >  erts_system_monitor_long_schedule) {
+		monitor_long_schedule_port(pp,ptp->type,(Uint) diff);
+	    }
+	}
+	start_time = 0;
 
     aborted_port_task:
 	schedule_port_task_free(ptp);
@@ -1807,6 +1838,16 @@ release_port(void *vport)
 {
     erts_port_dec_refc((Port *) vport);
 }
+
+static void
+schedule_release_port(void *vport) {
+  Port *pp = (Port*)vport;
+  /* This is only used when a port release was ordered from a non-scheduler */
+  erts_schedule_thr_prgr_later_op(release_port,
+				  (void *) pp,
+				  &pp->common.u.release);
+}
+
 #endif
 
 static void
@@ -1910,18 +1951,21 @@ begin_port_cleanup(Port *pp, ErtsPortTask **execqp, int *processing_busy_q_p)
 		break;
 	    case ERTS_PORT_TASK_INPUT:
 		erts_stale_drv_select(pp->common.id,
+				      ERTS_Port2ErlDrvPort(pp),
 				      ptp->u.alive.td.io.event,
 				      DO_READ,
 				      1);
 		break;
 	    case ERTS_PORT_TASK_OUTPUT:
 		erts_stale_drv_select(pp->common.id,
+				      ERTS_Port2ErlDrvPort(pp),
 				      ptp->u.alive.td.io.event,
 				      DO_WRITE,
 				      1);
 		break;
 	    case ERTS_PORT_TASK_EVENT:
 		erts_stale_drv_select(pp->common.id,
+				      ERTS_Port2ErlDrvPort(pp),
 				      ptp->u.alive.td.io.event,
 				      0,
 				      1);
@@ -1999,9 +2043,15 @@ begin_port_cleanup(Port *pp, ErtsPortTask **execqp, int *processing_busy_q_p)
      * Schedule cleanup of port structure...
      */
 #ifdef ERTS_SMP
-    erts_schedule_thr_prgr_later_op(release_port,
-				    (void *) pp,
-				    &pp->common.u.release);
+    /* We might not be a scheduler, eg. traceing to port we are sys_msg_dispatcher */
+    if (!erts_get_scheduler_data()) {
+      erts_schedule_misc_aux_work(1, schedule_release_port, (void*)pp);
+    } else {
+      /* Has to be more or less immediate to release any driver */
+      erts_schedule_thr_prgr_later_op(release_port,
+				      (void *) pp,
+				      &pp->common.u.release);
+    }
 #else
     pp->cleanup = 1;
 #endif

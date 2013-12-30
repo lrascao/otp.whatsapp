@@ -168,11 +168,56 @@ ipaddr(A) ->
 %%
 %% Build a CER record to send to a remote peer.
 
-%% Use the fact that diameter_caps has the same field names as CER.
+%% Use the fact that diameter_caps is expected to have the same field
+%% names as CER.
 bCER(#diameter_caps{} = Rec, Dict) ->
-    Values = lists:zip(Dict:'#info-'(diameter_base_CER, fields),
+    RecName = Dict:msg2rec('CER'),
+    Values = lists:zip(Dict:'#info-'(RecName, fields),
                        tl(tuple_to_list(Rec))),
-    Dict:'#new-'(diameter_base_CER, Values).
+    Dict:'#new-'(RecName, [{K, map(K, V, Dict)} || {K,V} <- Values]).
+
+%% map/3
+%%
+%% Deal with differerences in common dictionary AVP's to make changes
+%% transparent in service/transport config. In particular, one
+%% annoying difference between RFC 3588 and RFC 6733.
+%%
+%% RFC 6773 changes the definition of Vendor-Specific-Application-Id,
+%% giving Vendor-Id arity 1 instead of 3588's 1*. This causes woe
+%% since the corresponding dictionaries expect different values for a
+%% 'Vendor-Id': a list for 3588, an integer for 6733.
+
+map('Vendor-Specific-Application-Id' = T, L, Dict) ->
+    RecName = Dict:name2rec(T),
+    Rec = Dict:'#new-'(RecName, []),
+    Def = Dict:'#get-'('Vendor-Id', Rec),
+    [vsa(V, Def) || V <- L];
+map(_, V, _) ->
+    V.
+
+vsa({_, N, _, _} = Rec, [])
+  when is_integer(N) ->
+    setelement(2, Rec, [N]);
+
+vsa({_, [N], _, _} = Rec, undefined)
+  when is_integer(N) ->
+    setelement(2, Rec, N);
+
+vsa([_|_] = L, Def) ->
+    [vid(T, Def) || T <- L];
+
+vsa(T, _) ->
+    T.
+
+vid({'Vendor-Id' = K, N}, [])
+  when is_integer(N) ->
+    {K, [N]};
+
+vid({'Vendor-Id' = K, [N]}, undefined) ->
+    {K, N};
+
+vid(T, _) ->
+    T.
 
 %% rCER/3
 %%
@@ -239,8 +284,25 @@ build_CEA(_, LCaps, RCaps, Dict, CEA) ->
         [] ->
             Dict:'#set-'({'Result-Code', ?NOSECURITY}, CEA);
         [_] = IS ->
-            Dict:'#set-'({'Inband-Security-Id', IS}, CEA)
+            Dict:'#set-'({'Inband-Security-Id', inband_security(IS)}, CEA)
     end.
+
+%% Only set Inband-Security-Id if different from the default, since
+%% RFC 6733 recommends against the AVP:
+%%
+%% 6.10.  Inband-Security-Id AVP
+%%
+%%    The Inband-Security-Id AVP (AVP Code 299) is of type Unsigned32 and
+%%    is used in order to advertise support of the security portion of the
+%%    application.  The use of this AVP in CER and CEA messages is NOT
+%%    RECOMMENDED.  Instead, discovery of a Diameter entity's security
+%%    capabilities can be done either through static configuration or via
+%%    Diameter Peer Discovery as described in Section 5.2.
+
+inband_security([?NO_INBAND_SECURITY]) ->
+    [];
+inband_security([_] = IS) ->
+    IS.
 
 %% common_security/2
 
@@ -282,8 +344,9 @@ cs(LS, RS) ->
 %% CER is a subset of CEA, the latter adding Result-Code and a few
 %% more AVP's.
 cea_from_cer(CER, Dict) ->
-    [diameter_base_CER | Values] = Dict:'#get-'(CER),
-    Dict:'#set-'(Values, Dict:'#new-'(diameter_base_CEA)).
+    RecName = Dict:msg2rec('CEA'),
+    [_ | Values] = Dict:'#get-'(CER),
+    Dict:'#set-'(Values, Dict:'#new-'(RecName)).
 
 %% rCEA/3
 
@@ -359,12 +422,13 @@ app_union(#diameter_caps{auth_application_id = U,
                          vendor_specific_application_id = V}) ->
     set_list(U ++ C ++ lists:flatmap(fun vsa_apps/1, V)).
 
-vsa_apps([_ | [_,_] = Ids]) ->
-    lists:append(Ids);
+vsa_apps(Vals)
+  when is_list(Vals) ->
+    lists:flatmap(fun({'Vendor-Id', _}) -> []; ({_, Ids}) -> Ids end, Vals);
 vsa_apps(Rec)
   when is_tuple(Rec) ->
-    [_|T] = tuple_to_list(Rec),
-    vsa_apps(T).
+    [_Name, _VendorId | Idss] = tuple_to_list(Rec),
+    lists:append(Idss).
 
 %% It's a configuration error for a locally advertised application not
 %% to be represented in Apps. Don't just match on lists:keyfind/3 in

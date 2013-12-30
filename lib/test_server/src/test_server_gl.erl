@@ -166,7 +166,7 @@ handle_info({'DOWN',Ref,process,_,Reason}=D, #st{minor_monitor=Ref}=St) ->
 	    Data = io_lib:format("=== WARNING === TC: ~w\n"
 				 "Got down from minor Fd ~w: ~w\n\n",
 				 [St#st.tc,St#st.minor,D]),
-	    test_server_io:print(xxxFrom, unexpected_io, Data)
+	    test_server_io:print_unexpected(Data)
     end,
     {noreply,St#st{minor=none,minor_monitor=none}};
 handle_info({permit_io,Pid}, #st{permit_io=P}=St) ->
@@ -197,7 +197,7 @@ handle_info({io_request,From,ReplyAs,Req}=IoReq, St) ->
 	    From ! {io_reply,ReplyAs,ok}
     catch
 	_:_ ->
-	    {io_reply,ReplyAs,{error,arguments}}
+	    From ! {io_reply,ReplyAs,{error,arguments}}
     end,
     {noreply,St};
 handle_info({structured_io,ClientPid,{Detail,Str}}, St) ->

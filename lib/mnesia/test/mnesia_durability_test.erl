@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -100,14 +100,14 @@ load_latest_data(Config) when is_list(Config) ->
    
     ?match([], mnesia_test_lib:start_mnesia([N1], [])),   
     %% Should wait for N2
-    ?match({timeout, [t1]}, rpc:call(N1, mnesia, wait_for_tables, [[t1], 3000])),
+    ?match({timeout, [t1]}, rpc:call(N1, mnesia, wait_for_tables, [[t1], 1000])),
     ?match([], mnesia_test_lib:start_mnesia([N3], [])),   
-    ?match({timeout, [t1]}, rpc:call(N1, mnesia, wait_for_tables, [[t1], 3000])),
+    ?match({timeout, [t1]}, rpc:call(N1, mnesia, wait_for_tables, [[t1], 1000])),
 
 
     ?match([], mnesia_test_lib:start_mnesia([N2], [])),   
-    ?match(ok, rpc:call(N2, mnesia, wait_for_tables, [[t1], 3000])),
-    ?match(ok, rpc:call(N1, mnesia, wait_for_tables, [[t1], 3000])),
+    ?match(ok, rpc:call(N2, mnesia, wait_for_tables, [[t1], 10000])),
+    ?match(ok, rpc:call(N1, mnesia, wait_for_tables, [[t1], 10000])),
     %% We should find the record
     ?match([Rec2], rpc:call(N1, mnesia, dirty_read, [t1, test])),
     ?match([Rec2], rpc:call(N2, mnesia, dirty_read, [t1, test])),
@@ -124,12 +124,12 @@ load_latest_data(Config) when is_list(Config) ->
 
     ?match([], mnesia_test_lib:start_mnesia([N2], [])),   
     %% Should wait for N1
-    ?match({timeout, [t1]}, rpc:call(N2, mnesia, wait_for_tables, [[t1], 2000])),
+    ?match({timeout, [t1]}, rpc:call(N2, mnesia, wait_for_tables, [[t1], 1000])),
     ?match([], mnesia_test_lib:start_mnesia([N3], [])),   
-    ?match({timeout, [t1]}, rpc:call(N2, mnesia, wait_for_tables, [[t1], 2000])),
+    ?match({timeout, [t1]}, rpc:call(N2, mnesia, wait_for_tables, [[t1], 1000])),
     ?match([], mnesia_test_lib:start_mnesia([N1], [])),
-    ?match(ok, rpc:call(N2, mnesia, wait_for_tables, [[t1], 1000])),
-    ?match(ok, rpc:call(N1, mnesia, wait_for_tables, [[t1], 1000])),
+    ?match(ok, rpc:call(N2, mnesia, wait_for_tables, [[t1], 10000])),
+    ?match(ok, rpc:call(N1, mnesia, wait_for_tables, [[t1], 10000])),
     %% We should find the record
     ?match([Rec1], rpc:call(N1, mnesia, dirty_read, [t1, test])),
     ?match([Rec1], rpc:call(N2, mnesia, dirty_read, [t1, test])),

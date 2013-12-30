@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -654,13 +654,8 @@ start_trace_client(CollectorPid, Type, FileName) when Type =:= file ->
     Ref = erlang:monitor(process, Pid),
     receive
         WaitFor -> 
-	    erlang:demonitor(Ref),
-	    receive 
-		{'DOWN', Ref, _, _, _} ->
-		    file_loaded
-	    after 0 ->
-		    file_loaded
-	    end;
+	    erlang:demonitor(Ref, [flush]),
+	    file_loaded;
         {'DOWN', Ref, _, _, Reason} ->
             exit(Reason)
     end;

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -49,6 +49,10 @@ vsn() ->
 %% observer backend
 %%
 sys_info() ->
+    MemInfo = try erlang:memory() of
+		  Mem -> Mem
+	      catch _:_ -> []
+	      end,
     {{_,Input},{_,Output}} = erlang:statistics(io),
     [{process_count, erlang:system_info(process_count)},
      {process_limit, erlang:system_info(process_limit)},
@@ -68,9 +72,16 @@ sys_info() ->
      {threads, erlang:system_info(threads)},
      {thread_pool_size, erlang:system_info(thread_pool_size)},
      {wordsize_internal, erlang:system_info({wordsize, internal})},
-     {wordsize_external, erlang:system_info({wordsize, external})} |
-     erlang:memory()
-    ].
+     {wordsize_external, erlang:system_info({wordsize, external})},
+     {alloc_info, alloc_info()}
+     | MemInfo].
+
+alloc_info() ->
+    AlcuAllocs = erlang:system_info(alloc_util_allocators),
+    try erlang:system_info({allocator_sizes, AlcuAllocs}) of
+	Allocators -> Allocators
+    catch _:_ -> []
+    end.
 
 get_table(Parent, Table, Module) ->
     spawn(fun() ->
@@ -199,34 +210,57 @@ get_table_list(mnesia, Opts) ->
     lists:foldl(Info, [], mnesia:system_info(tables)).
 
 fetch_stats(Parent, Time) ->
-    erlang:system_flag(scheduler_wall_time, true),
     process_flag(trap_exit, true),
-    fetch_stats_loop(Parent, Time),
-    erlang:system_flag(scheduler_wall_time, false).
+    fetch_stats_loop(Parent, Time).
 
 fetch_stats_loop(Parent, Time) ->
+    erlang:system_flag(scheduler_wall_time, true),
     receive
-	_Msg -> normal
+	_Msg -> erlang:system_flag(scheduler_wall_time, false)
     after Time ->
 	    _M = Parent ! {stats, 1,
 			   erlang:statistics(scheduler_wall_time),
 			   erlang:statistics(io),
 			   erlang:memory()},
-	    fetch_stats(Parent, Time)
+	    fetch_stats_loop(Parent, Time)
     end.
 %%
 %% etop backend
 %%
 etop_collect(Collector) ->
+    %% If this is the first time and the scheduler_wall_time flag is
+    %% false, SchedulerWallTime will be 'undefined' (and show 0 cpu
+    %% utilization in etop). Next time the flag will be true and then
+    %% there will be a measurement.
+    SchedulerWallTime = erlang:statistics(scheduler_wall_time),
+
+    %% Turn off the flag while collecting data per process etc.
+    case erlang:system_flag(scheduler_wall_time,false) of
+	false ->
+	    %% First time and the flag was false - start a monitoring
+	    %% process to set the flag back to false when etop is stopped.
+	    spawn(fun() -> flag_holder_proc(Collector) end);
+	_ ->
+	    ok
+    end,
+
     ProcInfo = etop_collect(processes(), []),
+
     Collector ! {self(),#etop_info{now = now(),
 				   n_procs = length(ProcInfo),
 				   run_queue = erlang:statistics(run_queue),
-				   wall_clock = erlang:statistics(wall_clock),
-				   runtime = erlang:statistics(runtime),
+				   runtime = SchedulerWallTime,
 				   memi = etop_memi(),
 				   procinfo = ProcInfo
-				  }}.
+				  }},
+    erlang:system_flag(scheduler_wall_time,true).
+
+flag_holder_proc(Collector) ->
+    Ref = erlang:monitor(process,Collector),
+    receive
+	{'DOWN',Ref,_,_,_} ->
+	    erlang:system_flag(scheduler_wall_time,false)
+    end.
 
 etop_memi() ->
     try
@@ -251,7 +285,7 @@ etop_collect([P|Ps], Acc) ->
 	[{registered_name,Reg},{initial_call,Initial},{memory,Mem},
 	 {reductions,Reds},{current_function,Current},{message_queue_len,Qlen}] ->
 	    Name = case Reg of
-		       [] -> Initial;
+		       [] -> initial_call(Initial, P);
 		       _ -> Reg
 		   end,
 	    Info = #etop_proc_info{pid=P,mem=Mem,reds=Reds,name=Name,
@@ -259,6 +293,11 @@ etop_collect([P|Ps], Acc) ->
 	    etop_collect(Ps, [Info|Acc])
     end;
 etop_collect([], Acc) -> Acc.
+
+initial_call({proc_lib, init_p, _}, Pid) ->
+    proc_lib:translate_initial_call(Pid);
+initial_call(Initial, _Pid) ->
+    Initial.
 
 %%
 %% ttb backend

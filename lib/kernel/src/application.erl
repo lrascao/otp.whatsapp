@@ -18,10 +18,12 @@
 %%
 -module(application).
 
--export([start/1, start/2, start_boot/1, start_boot/2, stop/1, 
+-export([ensure_all_started/1, ensure_all_started/2, start/1, start/2,
+	 start_boot/1, start_boot/2, stop/1, 
 	 load/1, load/2, unload/1, takeover/2,
 	 which_applications/0, which_applications/1,
 	 loaded_applications/0, permit/2]).
+-export([ensure_started/1, ensure_started/2]).
 -export([set_env/3, set_env/4, unset_env/2, unset_env/3]).
 -export([get_env/1, get_env/2, get_env/3, get_all_env/0, get_all_env/1]).
 -export([get_key/1, get_key/2, get_all_key/0, get_all_key/1]).
@@ -112,6 +114,46 @@ load1(Application, DistNodes) ->
 unload(Application) ->
     application_controller:unload_application(Application).
 
+
+-spec ensure_all_started(Application) -> {'ok', Started} | {'error', Reason} when
+      Application :: atom(),
+      Started :: [atom()],
+      Reason :: term().
+ensure_all_started(Application) ->
+    ensure_all_started(Application, temporary).
+
+-spec ensure_all_started(Application, Type) -> {'ok', Started} | {'error', Reason} when
+      Application :: atom(),
+      Type :: restart_type(),
+      Started :: [atom()],
+      Reason :: term().
+ensure_all_started(Application, Type) ->
+    case ensure_all_started(Application, Type, []) of
+	{ok, Started} ->
+	    {ok, lists:reverse(Started)};
+	{error, Reason, Started} ->
+	    [stop(App) || App <- Started],
+	    {error, Reason}
+    end.
+
+ensure_all_started(Application, Type, Started) ->
+    case start(Application, Type) of
+	ok ->
+	    {ok, [Application | Started]};
+	{error, {already_started, Application}} ->
+	    {ok, Started};
+	{error, {not_started, Dependency}} ->
+	    case ensure_all_started(Dependency, Type, Started) of
+		{ok, NewStarted} ->
+		    ensure_all_started(Application, Type, NewStarted);
+		Error ->
+		    Error
+	    end;
+	{error, Reason} ->
+	    {error, {Application, Reason}, Started}
+    end.
+
+
 -spec start(Application) -> 'ok' | {'error', Reason} when
       Application :: atom(),
       Reason :: term().
@@ -131,6 +173,28 @@ start(Application, RestartType) ->
 	    application_controller:start_application(Name, RestartType);
 	{error, {already_loaded, Name}} ->
 	    application_controller:start_application(Name, RestartType);
+	Error ->
+	    Error
+    end.
+
+-spec ensure_started(Application) -> 'ok' | {'error', Reason} when
+      Application :: atom(),
+      Reason :: term().
+
+ensure_started(Application) ->
+    ensure_started(Application, temporary).
+
+-spec ensure_started(Application, Type) -> 'ok' | {'error', Reason} when
+      Application :: atom(),
+      Type :: restart_type(),
+      Reason :: term().
+
+ensure_started(Application, RestartType) ->
+    case start(Application, RestartType) of
+	ok ->
+	    ok;
+	{error, {already_started, Application}} ->
+	    ok;
 	Error ->
 	    Error
     end.

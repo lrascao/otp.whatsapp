@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -16,6 +16,8 @@
 %%
 %% %CopyrightEnd%
 %% 
+%% AES: RFC 3826
+%% 
 
 -module(snmp_usm).
 
@@ -24,7 +26,7 @@
 -export([passwd2localized_key/3, localize_key/3]).
 -export([auth_in/4, auth_out/4, set_msg_auth_params/3]).
 -export([des_encrypt/3, des_decrypt/3]).
--export([aes_encrypt/3, aes_decrypt/5]).
+-export([aes_encrypt/5, aes_decrypt/5]).
 
 
 -define(SNMP_USE_V3, true).
@@ -41,6 +43,9 @@
 -define(twelwe_zeros, [0,0,0,0,0,0,0,0,0,0,0,0]).
 
 -define(i32(Int), (Int bsr 24) band 255, (Int bsr 16) band 255, (Int bsr 8) band 255, Int band 255).
+
+-define(BLOCK_CIPHER_AES, aes_cfb128).
+-define(BLOCK_CIPHER_DES, des_cbc).
 
 
 %%-----------------------------------------------------------------
@@ -69,7 +74,7 @@ passwd2localized_key(Alg, Passwd, EngineID) when length(Passwd) > 0 ->
 %%-----------------------------------------------------------------
 localize_key(Alg, Key, EngineID) ->
     Str = [Key, EngineID, Key],
-    binary_to_list(crypto:Alg(Str)).
+    binary_to_list(crypto:hash(Alg, Str)).
 
 
 mk_digest(md5, Passwd) ->
@@ -78,25 +83,25 @@ mk_digest(sha, Passwd) ->
     mk_sha_digest(Passwd).
 
 mk_md5_digest(Passwd) ->
-    Ctx = crypto:md5_init(),
+    Ctx = crypto:hash_init(md5),
     Ctx2 = md5_loop(0, [], Ctx, Passwd, length(Passwd)),
-    crypto:md5_final(Ctx2).
+    crypto:hash_final(Ctx2).
 
 md5_loop(Count, Buf, Ctx, Passwd, PasswdLen) when Count < 1048576 ->
     {Buf64, NBuf} = mk_buf64(length(Buf), Buf, Passwd, PasswdLen),
-    NCtx = crypto:md5_update(Ctx, Buf64),
+    NCtx = crypto:hash_update(Ctx, Buf64),
     md5_loop(Count+64, NBuf, NCtx, Passwd, PasswdLen);
 md5_loop(_Count, _Buf, Ctx, _Passwd, _PasswdLen) ->
     Ctx.
 
 mk_sha_digest(Passwd) ->
-    Ctx = crypto:sha_init(),
+    Ctx = crypto:hash_init(sha),
     Ctx2 = sha_loop(0, [], Ctx, Passwd, length(Passwd)),
-    crypto:sha_final(Ctx2).
+    crypto:hash_final(Ctx2).
 
 sha_loop(Count, Buf, Ctx, Passwd, PasswdLen) when Count < 1048576 ->
     {Buf64, NBuf} = mk_buf64(length(Buf), Buf, Passwd, PasswdLen),
-    NCtx = crypto:sha_update(Ctx, Buf64),
+    NCtx = crypto:hash_update(Ctx, Buf64),
     sha_loop(Count+64, NBuf, NCtx, Passwd, PasswdLen);
 sha_loop(_Count, _Buf, Ctx, _Passwd, _PasswdLen) ->
     Ctx.
@@ -142,26 +147,33 @@ auth_out(?usmHMACSHAAuthProtocol, AuthKey, Message, UsmSecParams) ->
     sha_auth_out(AuthKey, Message, UsmSecParams).
 
 md5_auth_out(AuthKey, Message, UsmSecParams) ->
+    %% ?vtrace("md5_auth_out -> entry with"
+    %%  	    "~n   AuthKey:      ~w"
+    %% 	    "~n   Message:      ~w"
+    %%  	    "~n   UsmSecParams: ~w", [AuthKey, Message, UsmSecParams]),
     %% 6.3.1.1
     Message2 = set_msg_auth_params(Message, UsmSecParams, ?twelwe_zeros),
-    Packet = snmp_pdus:enc_message_only(Message2),
+    Packet   = snmp_pdus:enc_message_only(Message2),
     %% 6.3.1.2-4 is done by the crypto function
     %% 6.3.1.4
-    MAC = binary_to_list(crypto:md5_mac_96(AuthKey, Packet)),
+    MAC = binary_to_list(crypto:hmac(md5, AuthKey, Packet, 12)),
+    %% ?vtrace("md5_auth_out -> crypto (md5) encoded"
+    %%  	    "~n   MAC: ~w", [MAC]),
     %% 6.3.1.5
     set_msg_auth_params(Message, UsmSecParams, MAC).
 
 md5_auth_in(AuthKey, AuthParams, Packet) when length(AuthParams) == 12 ->
+    %% ?vtrace("md5_auth_in -> entry with"
+    %%  	    "~n   AuthKey:    ~w"
+    %%  	    "~n   AuthParams: ~w"
+    %%  	    "~n   Packet:     ~w", [AuthKey, AuthParams, Packet]),
     %% 6.3.2.3
     Packet2 = patch_packet(binary_to_list(Packet)),
     %% 6.3.2.5
-    MAC = binary_to_list(crypto:md5_mac_96(AuthKey, Packet2)),
+    MAC = binary_to_list(crypto:hmac(md5, AuthKey, Packet2, 12)),
     %% 6.3.2.6
-%%     ?vtrace("md5_auth_in -> entry with"
-%% 	    "~n   Packet2:    ~w"
-%% 	    "~n   AuthKey:    ~w"
-%% 	    "~n   AuthParams: ~w"
-%% 	    "~n   MAC:        ~w", [Packet2, AuthKey, AuthParams, MAC]),
+    %% ?vtrace("md5_auth_in -> crypto (md5) encoded"
+    %%  	    "~n   MAC: ~w", [MAC]),
     MAC == AuthParams;
 md5_auth_in(_AuthKey, _AuthParams, _Packet) ->
     %% 6.3.2.1
@@ -177,7 +189,7 @@ sha_auth_out(AuthKey, Message, UsmSecParams) ->
     Packet = snmp_pdus:enc_message_only(Message2),
     %% 7.3.1.2-4 is done by the crypto function
     %% 7.3.1.4
-    MAC = binary_to_list(crypto:sha_mac_96(AuthKey, Packet)),
+    MAC = binary_to_list(crypto:hmac(sha, AuthKey, Packet, 12)),
     %% 7.3.1.5
     set_msg_auth_params(Message, UsmSecParams, MAC).
 
@@ -185,7 +197,7 @@ sha_auth_in(AuthKey, AuthParams, Packet) when length(AuthParams) =:= 12 ->
     %% 7.3.2.3
     Packet2 = patch_packet(binary_to_list(Packet)),
     %% 7.3.2.5
-    MAC = binary_to_list(crypto:sha_mac_96(AuthKey, Packet2)),
+    MAC = binary_to_list(crypto:hmac(sha, AuthKey, Packet2, 12)),
     %% 7.3.2.6
     MAC == AuthParams;
 sha_auth_in(_AuthKey, _AuthParams, _Packet) ->
@@ -203,7 +215,8 @@ des_encrypt(PrivKey, Data, SaltFun) ->
     IV = list_to_binary(snmp_misc:str_xor(PreIV, Salt)),
     TailLen = (8 - (length(Data) rem 8)) rem 8,
     Tail = mk_tail(TailLen),
-    EncData = crypto:des_cbc_encrypt(DesKey, IV, [Data,Tail]),
+    EncData = crypto:block_encrypt(?BLOCK_CIPHER_DES, 
+				   DesKey, IV, [Data,Tail]),
     {ok, binary_to_list(EncData), Salt}.
 
 des_decrypt(PrivKey, MsgPrivParams, EncData) 
@@ -217,7 +230,8 @@ des_decrypt(PrivKey, MsgPrivParams, EncData)
     Salt = MsgPrivParams,
     IV = list_to_binary(snmp_misc:str_xor(PreIV, Salt)),
     %% Whatabout errors here???  E.g. not a mulitple of 8!
-    Data = binary_to_list(crypto:des_cbc_decrypt(DesKey, IV, EncData)),
+    Data = binary_to_list(crypto:block_decrypt(?BLOCK_CIPHER_DES, 
+					       DesKey, IV, EncData)),
     Data2 = snmp_pdus:strip_encrypted_scoped_pdu_data(Data),
     {ok, Data2};
 des_decrypt(PrivKey, BadMsgPrivParams, EncData) ->
@@ -229,13 +243,12 @@ des_decrypt(PrivKey, BadMsgPrivParams, EncData) ->
     throw({error, {bad_msgPrivParams, PrivKey, BadMsgPrivParams, EncData}}).
     
 
-aes_encrypt(PrivKey, Data, SaltFun) ->
+aes_encrypt(PrivKey, Data, SaltFun, EngineBoots, EngineTime) ->
     AesKey = PrivKey,
     Salt = SaltFun(),
-    EngineBoots = snmp_framework_mib:get_engine_boots(),
-    EngineTime = snmp_framework_mib:get_engine_time(),
     IV = list_to_binary([?i32(EngineBoots), ?i32(EngineTime) | Salt]),
-    EncData = crypto:aes_cfb_128_encrypt(AesKey, IV, Data),
+    EncData = crypto:block_encrypt(?BLOCK_CIPHER_AES, 
+				   AesKey, IV, Data),
     {ok, binary_to_list(EncData), Salt}.
 
 aes_decrypt(PrivKey, MsgPrivParams, EncData, EngineBoots, EngineTime)
@@ -244,7 +257,8 @@ aes_decrypt(PrivKey, MsgPrivParams, EncData, EngineBoots, EngineTime)
     Salt = MsgPrivParams,
     IV = list_to_binary([?i32(EngineBoots), ?i32(EngineTime) | Salt]),
     %% Whatabout errors here???  E.g. not a mulitple of 8!
-    Data = binary_to_list(crypto:aes_cfb_128_decrypt(AesKey, IV, EncData)),
+    Data = binary_to_list(crypto:block_decrypt(?BLOCK_CIPHER_AES, 
+					       AesKey, IV, EncData)),
     Data2 = snmp_pdus:strip_encrypted_scoped_pdu_data(Data),
     {ok, Data2}.
 

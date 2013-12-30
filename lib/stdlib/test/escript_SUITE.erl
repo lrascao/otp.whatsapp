@@ -615,7 +615,7 @@ archive_script_file_access(Config) when is_list(Config) ->
     %% 3. If symlinks are supported, run one of the scripts via a symlink.
     %%
     %% This is in order to test error b) described above this test case.
-    case file:read_link(Symlink2) of
+    case element(1,os:type()) =:= win32 orelse file:read_link(Symlink2) of
 	{ok,_} ->
 	    run(PrivDir, "./" ++ SymlinkName2 ++ " " ++ ScriptName2,
 		[<<"ExitCode:0">>]);
@@ -919,6 +919,9 @@ unicode(Config) when is_list(Config) ->
            " an arithmetic expression\n  in operator  '/'/2\n     "
            "called as <<\"\xaa\">> / <<\"\xaa\">>\nExitCode:127">>]),
     run(Dir, "unicode3", [<<"ExitCode:0">>]),
+    run(Dir, "unicode4", [<<"ExitCode:0">>]),
+    run(Dir, "unicode5", [<<"ExitCode:0">>]),
+    run(Dir, "unicode6", [<<"ExitCode:0">>]),
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

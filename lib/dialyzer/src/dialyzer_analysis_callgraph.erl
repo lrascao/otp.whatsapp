@@ -2,7 +2,7 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -255,14 +255,17 @@ compile_and_store(Files, #analysis_state{codeserver = CServer,
   CServer2 = dialyzer_codeserver:set_next_core_label(NextLabel, CServer),
   case Failed =:= [] of
     true ->
-      NewFiles = lists:zip(lists:reverse(Modules), Files),
       ModDict =
-        lists:foldl(fun({Mod, F}, Dict) -> dict:append(Mod, F, Dict) end,
-                    dict:new(), NewFiles),
+        lists:foldl(fun(F, Dict) ->
+                        ModFile = lists:last(filename:split(F)),
+                        Mod = filename:basename(ModFile, ".beam"),
+                        dict:append(Mod, F, Dict)
+                    end,
+                    dict:new(), Files),
       check_for_duplicate_modules(ModDict);
     false ->
-      Msg = io_lib:format("Could not scan the following file(s): ~p",
-			  [lists:flatten(Failed)]),
+      Msg = io_lib:format("Could not scan the following file(s):~n~s",
+      			  [[Reason || {_Filename, Reason} <- Failed]]),
       exit({error, Msg})
   end,
   {T2, _} = statistics(runtime),

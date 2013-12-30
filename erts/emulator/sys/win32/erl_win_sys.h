@@ -82,7 +82,6 @@
 #define NO_ERF
 #define NO_ERFC
 
-#define NO_SYSLOG
 #define NO_SYSCONF
 #define NO_DAEMON
 #define NO_PWD
@@ -94,6 +93,8 @@
 #  undef ERTS_I64_LITERAL
 #  define ERTS_I64_LITERAL(X) X##i64
 #endif
+
+#define ERTS_HAVE_ERTS_SYS_ALIGNED_ALLOC 1
 
 /*
  * Practial Windows specific macros.

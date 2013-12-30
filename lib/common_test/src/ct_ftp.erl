@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2003-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2013. All Rights Reserved.
 %% 
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -348,10 +348,10 @@ terminate(FtpPid,State) ->
 get_handle(Pid) when is_pid(Pid) ->
     {ok,Pid};
 get_handle(Name) ->
-    case ct_util:get_connections(Name,?MODULE) of
-	{ok,[{Pid,_}|_]} ->
+    case ct_util:get_connection(Name,?MODULE) of
+	{ok,{Pid,_}} ->
 	    {ok,Pid};
-	{ok,[]} ->
+	{error,no_registered_connection} ->
 	    open(Name);
 	Error ->
 	    Error

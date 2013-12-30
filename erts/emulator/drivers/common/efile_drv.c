@@ -398,7 +398,6 @@ struct t_pwritev {
     ErlDrvPort         port;
     ErlDrvPDL          q_mtx;
     size_t             size;
-    size_t             free_size;
     unsigned           cnt;
     unsigned           n;
     struct t_pbuf_spec specs[1];
@@ -463,7 +462,6 @@ struct t_data
 	    ErlDrvPort    port;
 	    ErlDrvPDL     q_mtx;
 	    size_t        size;
-	    size_t        free_size;
 	    size_t        reply_size;
 	} writev;
 	struct t_pwritev pwritev;
@@ -545,57 +543,85 @@ static void *ef_safe_realloc(void *op, Uint s)
  */
 
 /* char EV_CHAR_P(ErlIOVec *ev, int p, int q) */
-#define EV_CHAR_P(ev, p, q)                   \
-    (((char *)(ev)->iov[(q)].iov_base) + (p))
+#define EV_CHAR_P(ev, p, q)			\
+    (((char *)(ev)->iov[q].iov_base) + (p))
 
 /* int EV_GET_CHAR(ErlIOVec *ev, char *p, int *pp, int *qp) */
-#define EV_GET_CHAR(ev, p, pp, qp)                      \
-    (*(pp)+1 <= (ev)->iov[*(qp)].iov_len                \
-     ? (*(p) = *EV_CHAR_P(ev, *(pp), *(qp)),            \
-        *(pp) = (    *(pp)+1 < (ev)->iov[*(qp)].iov_len \
-                 ?   *(pp)+1                            \
-                 : ((*(qp))++, 0)),                     \
-        !0)                                             \
-     : 0)
+#define EV_GET_CHAR(ev, p, pp, qp) efile_ev_get_char(ev, p ,pp, qp)
+static int
+efile_ev_get_char(ErlIOVec *ev, char *p, size_t *pp, size_t *qp) {
+    if (*pp + 1 <= ev->iov[*qp].iov_len) {
+	*p = *EV_CHAR_P(ev, *pp, *qp);
+	if (*pp + 1 < ev->iov[*qp].iov_len)
+	    *pp += 1;
+	else {
+	    *qp += 1;
+	    *pp = 0;
+	}
+	return !0;
+    }
+    return 0;
+}
 
 /* Uint32 EV_UINT32(ErlIOVec *ev, int p, int q)*/
-#define EV_UINT32(ev, p, q) \
-    ((Uint32) *(((unsigned char *)(ev)->iov[(q)].iov_base) + (p)))
+#define EV_UINT32(ev, p, q)						\
+    ((Uint32) ((unsigned char *)(ev)->iov[q].iov_base)[p])
 
 /* int EV_GET_UINT32(ErlIOVec *ev, Uint32 *p, int *pp, int *qp) */
-#define EV_GET_UINT32(ev, p, pp, qp)                      \
-    (*(pp)+4 <= (ev)->iov[*(qp)].iov_len                  \
-     ? (*(p) = (EV_UINT32(ev, *(pp),   *(qp)) << 24)      \
-             | (EV_UINT32(ev, *(pp)+1, *(qp)) << 16)      \
-             | (EV_UINT32(ev, *(pp)+2, *(qp)) << 8)       \
-             | (EV_UINT32(ev, *(pp)+3, *(qp))),           \
-        *(pp) = (    *(pp)+4 < (ev)->iov[*(qp)].iov_len   \
-                 ?   *(pp)+4                              \
-                 : ((*(qp))++, 0)),                       \
-        !0)                                               \
-     : 0)
+#define EV_GET_UINT32(ev, p, pp, qp) efile_ev_get_uint32(ev, p, pp, qp)
+static int
+efile_ev_get_uint32(ErlIOVec *ev, Uint32 *p, size_t *pp, size_t *qp) {
+    if (*pp + 4 <= ev->iov[*qp].iov_len) {
+	*p = (EV_UINT32(ev, *pp,   *qp) << 24)
+	    | (EV_UINT32(ev, *pp + 1, *qp) << 16)
+	    | (EV_UINT32(ev, *pp + 2, *qp) << 8)
+	    | (EV_UINT32(ev, *pp + 3, *qp));
+	if (*pp + 4 < ev->iov[*qp].iov_len)
+	    *pp += 4;
+	else {
+	    *qp += 1;
+	    *pp = 0;
+	}
+	return !0;
+    }
+    return 0;
+}
 
 /* Uint64 EV_UINT64(ErlIOVec *ev, int p, int q)*/
-#define EV_UINT64(ev, p, q) \
-    ((Uint64) *(((unsigned char *)(ev)->iov[(q)].iov_base) + (p)))
+#define EV_UINT64(ev, p, q)						\
+    ((Uint64) ((unsigned char *)(ev)->iov[q].iov_base)[p])
 
-/* int EV_GET_UINT64(ErlIOVec *ev, Uint32 *p, int *pp, int *qp) */
-#define EV_GET_UINT64(ev, p, pp, qp)                      \
-    (*(pp)+8 <= (ev)->iov[*(qp)].iov_len                  \
-     ? (*(p) = (EV_UINT64(ev, *(pp),   *(qp)) << 56)      \
-             | (EV_UINT64(ev, *(pp)+1, *(qp)) << 48)      \
-             | (EV_UINT64(ev, *(pp)+2, *(qp)) << 40)      \
-             | (EV_UINT64(ev, *(pp)+3, *(qp)) << 32)      \
-             | (EV_UINT64(ev, *(pp)+4, *(qp)) << 24)      \
-             | (EV_UINT64(ev, *(pp)+5, *(qp)) << 16)      \
-             | (EV_UINT64(ev, *(pp)+6, *(qp)) << 8)       \
-             | (EV_UINT64(ev, *(pp)+7, *(qp))),           \
-        *(pp) = (    *(pp)+8 < (ev)->iov[*(qp)].iov_len   \
-                 ?   *(pp)+8                              \
-                 : ((*(qp))++, 0)),                       \
-        !0)                                               \
-     : 0)
+/* int EV_GET_UINT64(ErlIOVec *ev, Uint64 *p, int *pp, int *qp) */
+#define EV_GET_UINT64(ev, p, pp, qp) efile_ev_get_uint64(ev, p, pp, qp)
+static int
+efile_ev_get_uint64(ErlIOVec *ev, Uint64 *p, size_t *pp, size_t *qp) {
+    if (*pp + 8 <= ev->iov[*qp].iov_len) {
+	*p = (EV_UINT64(ev, *pp, *qp) << 56)
+	    | (EV_UINT64(ev, *pp + 1, *qp) << 48)
+	    | (EV_UINT64(ev, *pp + 2, *qp) << 40)
+	    | (EV_UINT64(ev, *pp + 3, *qp) << 32)
+	    | (EV_UINT64(ev, *pp + 4, *qp) << 24)
+	    | (EV_UINT64(ev, *pp + 5, *qp) << 16)
+	    | (EV_UINT64(ev, *pp + 6, *qp) << 8)
+	    | (EV_UINT64(ev, *pp + 7, *qp));
+	if (*pp + 8 < ev->iov[*qp].iov_len)
+	    *pp += 8;
+	else {
+	    *qp += 1;
+	    *pp = 0;
+	}
+	return !0;
+    }
+    return 0;
+}
 
+/* int EV_GET_SINT64(ErlIOVec *ev, Uint64 *p, int *pp, int *qp) */
+#define EV_GET_SINT64(ev, p, pp, qp) efile_ev_get_sint64(ev, p, pp, qp)
+static int
+efile_ev_get_sint64(ErlIOVec *ev, Sint64 *p, size_t *pp, size_t *qp) {
+    Uint64 *tmp = (Uint64*)p;
+    return EV_GET_UINT64(ev, tmp, pp, qp);
+}
 
 #if 0
 
@@ -752,6 +778,7 @@ file_init(void)
     return 0;
 }
 
+
 /*********************************************************************
  * Driver entry point -> start
  */
@@ -768,7 +795,7 @@ file_start(ErlDrvPort port, char* command)
     }
     desc->fd = FILE_FD_INVALID;
     desc->port = port;
-    desc->key = (unsigned int) (UWord) port;
+    desc->key = driver_async_port_key(port);
     desc->flags = 0;
     desc->invoke = NULL;
     desc->d = NULL;
@@ -1118,7 +1145,7 @@ static void invoke_read(void *data)
 	read_size = erts_gzread((gzFile)d->fd, 
 				d->c.read.binp->orig_bytes + d->c.read.bin_offset,
 				size);
-	status = (read_size != -1);
+	status = (read_size != (size_t) -1);
 	if (!status) {
 	    d->errInfo.posix_errno = EIO;
 	}
@@ -1192,7 +1219,7 @@ static void invoke_read_line(void *data)
 				    d->c.read_line.binp->orig_bytes + 
 				    d->c.read_line.read_offset + d->c.read_line.read_size,
 				    size);
-	    status = (read_size != -1);
+	    status = (read_size != (size_t) -1);
 	    if (!status) {
 		d->errInfo.posix_errno = EIO;
 	    }
@@ -1352,7 +1379,7 @@ static void invoke_preadv(void *data)
 	      = efile_pread(&d->errInfo, 
 			    (int) d->fd,
 			    c->offsets[c->cnt] + c->size,
-			    ev->iov[1 + c->cnt].iov_base + c->size,
+			    ((char *)ev->iov[1 + c->cnt].iov_base) + c->size,
 			    read_size,
 			    &bytes_read))) {
 	    bytes_read_so_far += bytes_read;
@@ -1538,26 +1565,24 @@ static void invoke_writev(void *data) {
     }
     EF_FREE(iov);
 
-    d->c.writev.free_size = size;
-    d->c.writev.size -= size;
     if (! d->result_ok) {
 	d->again = 0;
+	MUTEX_LOCK(d->c.writev.q_mtx);
+	driver_deq(d->c.writev.port, d->c.writev.size);
+	MUTEX_UNLOCK(d->c.writev.q_mtx);
     } else {
 	if (! segment) {
 	    d->again = 0;
 	}
+	d->c.writev.size -= size;
 	TRACE_F(("w%lu", (unsigned long)size));
-
+	MUTEX_LOCK(d->c.writev.q_mtx);
+	driver_deq(d->c.writev.port, size);
+	MUTEX_UNLOCK(d->c.writev.q_mtx);
     }
-    DTRACE_INVOKE_RETURN(FILE_WRITE);
-}
 
-static void free_writev(void *data) {
-    struct t_data *d = data;
-    MUTEX_LOCK(d->c.writev.q_mtx);
-    driver_deq(d->c.writev.port, d->c.writev.size + d->c.writev.free_size);
-    MUTEX_UNLOCK(d->c.writev.q_mtx);
-    EF_FREE(d);
+
+    DTRACE_INVOKE_RETURN(FILE_WRITE);
 }
 
 static void invoke_pwd(void *data)
@@ -1608,7 +1633,7 @@ static void invoke_pwritev(void *data) {
     struct t_pwritev *c = &d->c.pwritev;
     size_t            p;
     int               segment;
-    size_t            size, write_size;
+    size_t            size, write_size, written;
     DTRACE_INVOKE_SETUP(FILE_PWRITEV);
 
     segment = d->again && c->size >= 2*FILE_SEGMENT_WRITE;
@@ -1628,39 +1653,35 @@ static void invoke_pwritev(void *data) {
 
     if (iovlen < 0)
 	goto error; /* Port terminated */
-    for (iovcnt = 0, c->free_size = 0;
-	 c->cnt < c->n && iovcnt < iovlen && c->free_size < size;
+    for (iovcnt = 0, written = 0;
+	 c->cnt < c->n && iovcnt < iovlen && written < size;
 	 c->cnt++) {
 	int chop;
 	write_size = c->specs[c->cnt].size;
 	if (iov[iovcnt].iov_len - p < write_size) {
-	    /* Mismatch between pos/size spec and what is queued */
-	    d->errInfo.posix_errno = EINVAL;
-	    d->result_ok = 0;
-	    d->again = 0;
-	    goto done;
+	    goto error;
 	}
-	chop = segment && c->free_size + write_size >= 2*FILE_SEGMENT_WRITE;
+	chop = segment && written + write_size >= 2*FILE_SEGMENT_WRITE;
 	if (chop) {
-	    ASSERT(c->free_size < FILE_SEGMENT_WRITE);
+	    ASSERT(written < FILE_SEGMENT_WRITE);
 	    write_size = FILE_SEGMENT_WRITE + FILE_SEGMENT_WRITE/2 
-		- c->free_size;
+		- written;
 	}
 	d->result_ok = efile_pwrite(&d->errInfo, (int) d->fd,
-				    iov[iovcnt].iov_base + p,
+				    (char *)(iov[iovcnt].iov_base) + p,
 				    write_size,
 				    c->specs[c->cnt].offset);
 	if (! d->result_ok) {
 	    d->again = 0;
-	    goto done;
+	    goto deq_error;
 	}
-	c->free_size += write_size; 
+	written += write_size; 
 	c->size -= write_size;
 	if (chop) { 
 	    c->specs[c->cnt].offset += write_size;
 	    c->specs[c->cnt].size -= write_size;
 	    /* Schedule out (d->again != 0) */
-	    goto done;
+	    break;
 	}
 	/* Move forward in buffer */
 	p += write_size;
@@ -1682,23 +1703,27 @@ static void invoke_pwritev(void *data) {
 	    d->errInfo.posix_errno = EINVAL;
 	    d->result_ok = 0;
 	    d->again = 0;
+	deq_error:
+	    MUTEX_LOCK(d->c.writev.q_mtx);
+	    driver_deq(d->c.pwritev.port, c->size);
+	    MUTEX_UNLOCK(d->c.writev.q_mtx);
+
+	    goto done;
 	} else {
-	    ASSERT(c->free_size == size);
+	    ASSERT(written == size);
 	    d->again = 0;
 	}
+    } else {
+      ASSERT(written >= FILE_SEGMENT_WRITE);
     }
+      
+    MUTEX_LOCK(d->c.writev.q_mtx);
+    driver_deq(d->c.pwritev.port, written);
+    MUTEX_UNLOCK(d->c.writev.q_mtx);
  done:
     EF_FREE(iov); /* Free our copy of the vector, nothing to restore */
+    
     DTRACE_INVOKE_RETURN(FILE_PWRITEV);
-}
-
-static void free_pwritev(void *data) {
-    struct t_data *d = data;
-
-    MUTEX_LOCK(d->c.writev.q_mtx);
-    driver_deq(d->c.pwritev.port, d->c.pwritev.free_size + d->c.pwritev.size);
-    MUTEX_UNLOCK(d->c.writev.q_mtx);
-    EF_FREE(d);
 }
 
 static void invoke_flstat(void *data)
@@ -2014,21 +2039,8 @@ static void try_free_read_bin(file_descriptor *desc) {
 
 
 static int try_again(file_descriptor *desc, struct t_data *d) {
-    if (! d->again) {
+    if (! d->again)
 	return 0;
-    }
-    switch (d->command) {
-    case FILE_WRITE:
-	MUTEX_LOCK(d->c.writev.q_mtx);
-	driver_deq(d->c.writev.port, d->c.writev.free_size);
-	MUTEX_UNLOCK(d->c.writev.q_mtx);
-	break;
-    case FILE_PWRITEV:
-	MUTEX_LOCK(d->c.writev.q_mtx);
-	driver_deq(d->c.pwritev.port, d->c.pwritev.free_size);
-	MUTEX_UNLOCK(d->c.writev.q_mtx);
-	break;
-    }
     if (desc->timer_state != timer_idle) {
 	driver_cancel_timer(desc->port);
     }
@@ -2084,10 +2096,9 @@ static struct t_data *async_write(file_descriptor *desc, int *errp,
     }
 #endif
     d->reply = reply;
-    d->c.writev.free_size = 0;
     d->c.writev.reply_size = reply_size;
     d->invoke = invoke_writev;
-    d->free = free_writev;
+    d->free = free_data;
     d->level = 1;
     cq_enq(desc, d);
     desc->write_buffered = 0;
@@ -2400,7 +2411,7 @@ file_async_ready(ErlDrvData e, ErlDrvThreadData data)
 		  desc->write_errInfo = d->errInfo;
 	      }
 	  }
-	  free_writev(data);
+	  free_data(data);
 	  break;
       case FILE_LSEEK:
 	  if (d->reply) {
@@ -2530,7 +2541,7 @@ file_async_ready(ErlDrvData e, ErlDrvThreadData data)
 	  } else {
 	      reply_Uint(desc, d->c.pwritev.n);
 	  }
-	  free_pwritev(data);
+	  free_data(data);
 	  break;
       case FILE_PREADV:
 	  if (!d->result_ok) {
@@ -2565,7 +2576,7 @@ file_async_ready(ErlDrvData e, ErlDrvThreadData data)
 	      reply_Sint64(desc, d->c.sendfile.written);
 	      desc->sendfile_state = not_sending;
 	      free_sendfile(data);
-	  } else if (d->result_ok == 1) { // If we are using select to send the rest of the data
+	  } else if (d->result_ok == 1) { /* If we are using select to send the rest of the data */
 	      desc->sendfile_state = sending;
 	      desc->d = d;
 	      driver_select(desc->port, (ErlDrvEvent)(long)d->c.sendfile.out_fd,
@@ -2587,7 +2598,7 @@ file_async_ready(ErlDrvData e, ErlDrvThreadData data)
     }
     DTRACE6(efile_drv_return, sched_i1, sched_i2, sched_utag,
             command, result_ok, posix_errno);
-    if (desc->write_buffered != 0 && desc->timer_state == timer_idle) {
+    if (desc->write_buffered != 0 && desc->timer_state == timer_idle ) {
 	desc->timer_state = timer_write;
 	driver_set_timer(desc->port, desc->write_delay);
     }
@@ -3130,25 +3141,25 @@ file_flush(ErlDrvData e) {
 
 /*********************************************************************
  * Driver entry point -> control
+ * Only debug functionality...
  */
 static ErlDrvSSizeT
 file_control(ErlDrvData e, unsigned int command, 
 	     char* buf, ErlDrvSizeT len, char **rbuf, ErlDrvSizeT rlen) {
-    /*
-     *  warning: variable ‘desc’ set but not used 
-     *  [-Wunused-but-set-variable]
-     *  ... no kidding ...
-     *
-     *
     file_descriptor *desc = (file_descriptor *)e;
     switch (command) {
+    case 'K' :
+	if (rlen < 4) {
+	    *rbuf = EF_ALLOC(4);
+	}
+	(*rbuf)[0] = ((desc->key) >> 24) & 0xFF;
+	(*rbuf)[1] = ((desc->key) >> 16) & 0xFF;
+	(*rbuf)[2] = ((desc->key) >> 8) & 0xFF;
+	(*rbuf)[3] = (desc->key) & 0xFF;
+	return 4;
     default:
 	return 0;
-    } 
-    ASSERT(0);
-    desc = NULL; 
-    */
-    return 0;
+    }
 }
 
 /*********************************************************************
@@ -3201,7 +3212,7 @@ static void
 file_outputv(ErlDrvData e, ErlIOVec *ev) {
     file_descriptor* desc = (file_descriptor*)e;
     char command;
-    int p, q;
+    size_t p, q;
     int err;
     struct t_data *d = NULL;
 #ifdef USE_VM_PROBES
@@ -3629,7 +3640,7 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 	for(i = 0; i < n; i++) {
 	    Uint32 sizeH, sizeL;
 	    size_t size;
-	    if (   !EV_GET_UINT64(ev, &d->c.pwritev.specs[i].offset, &p, &q)
+	    if (   !EV_GET_SINT64(ev, &d->c.pwritev.specs[i].offset, &p, &q)
 		|| !EV_GET_UINT32(ev, &sizeH, &p, &q)
 		|| !EV_GET_UINT32(ev, &sizeL, &p, &q)) {
 		/* Misalignment in buffer */
@@ -3657,7 +3668,6 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 #ifdef USE_VM_PROBES
 	dt_i3 = d->c.pwritev.size;
 #endif
-	d->c.pwritev.free_size = 0;
 	if (j == 0) {
 	    /* Trivial case - nothing to write */
 	    EF_FREE(d);
@@ -3681,7 +3691,7 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 		MUTEX_UNLOCK(desc->q_mtx);
 		/* Execute the command */
 		d->invoke = invoke_pwritev;
-		d->free = free_pwritev;
+		d->free = free_data;
 		d->level = 1;
 		cq_enq(desc, d);
 	    }
@@ -3772,7 +3782,7 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 	for (i = 1; i < 1+n; i++) {
 	    Uint32 sizeH, sizeL;
 	    size_t size;
-	    if (   !EV_GET_UINT64(ev, &d->c.preadv.offsets[i-1], &p, &q)
+	    if (   !EV_GET_SINT64(ev, &d->c.preadv.offsets[i-1], &p, &q)
 		|| !EV_GET_UINT32(ev, &sizeH, &p, &q)
 		|| !EV_GET_UINT32(ev, &sizeL, &p, &q)) {
 		reply_posix_error(desc, EINVAL);
@@ -3819,7 +3829,7 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 	res_ev->iov[0].iov_base = res_ev->binv[0]->orig_bytes;
 	/* Fill in the number of buffers in the header */
 	put_int32(0, res_ev->iov[0].iov_base);
-	put_int32(n, res_ev->iov[0].iov_base+4);
+	put_int32(n, (char *)(res_ev->iov[0].iov_base) + 4);
 	/**/
 	res_ev->size = res_ev->iov[0].iov_len;
 	if (n == 0) {
@@ -3840,7 +3850,7 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 	Uint32 origin;		/* Origin of seek. */
 
 	if (ev->size < 1+8+4
-	    || !EV_GET_UINT64(ev, &offset, &p, &q)
+	    || !EV_GET_SINT64(ev, &offset, &p, &q)
 	    || !EV_GET_UINT32(ev, &origin, &p, &q)) {
 	    /* Wrong length of buffer to contain offset and origin */
 	    reply_posix_error(desc, EINVAL);
@@ -3953,7 +3963,7 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 	    goto done;
 	}
 	if (ev->size < 1+1+8+4
-	    || !EV_GET_UINT64(ev, &hdr_offset, &p, &q)
+	    || !EV_GET_SINT64(ev, &hdr_offset, &p, &q)
 	    || !EV_GET_UINT32(ev, &max_size, &p, &q)) {
 	    /* Buffer too short to contain 
 	     * the header offset and max size spec */
@@ -4120,7 +4130,7 @@ file_outputv(ErlDrvData e, ErlIOVec *ev) {
 	}
 
 	if (hd_len != 0 || tl_len != 0 || flags != 0) {
-	    // We do not allow header, trailers and/or flags right now
+	    /* We do not allow header, trailers and/or flags right now */
 	    reply_posix_error(desc, EINVAL);
 	    goto done;
 	}

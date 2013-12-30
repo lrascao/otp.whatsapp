@@ -95,9 +95,9 @@ connect(Ip,Port,Timeout,KeepAlive,Extra) ->
 	    connect1(Ip,Port,Timeout,KeepAlive,Username,Password);
 	Name ->
 	    case get_username_and_password(Name) of
-		{ok,{Username,Password}} -> 
+		{ok,{Username,Password}} ->
 		    connect1(Ip,Port,Timeout,KeepAlive,Username,Password);
-		Error -> 
+		Error ->
 		    Error
 	    end
     end.

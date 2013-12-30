@@ -43,9 +43,7 @@ RELSYSDIR = $(RELEASE_PATH)/lib/asn1-$(VSN)
 
 EBIN = ../ebin
 
-EVAL_CT_MODULES = asn1ct_eval_ext \
-		  asn1ct_eval_per \
-		  asn1ct_eval_uper
+EVAL_CT_MODULES = asn1ct_eval_ext
 
 CT_MODULES= \
 	asn1ct \
@@ -55,7 +53,6 @@ CT_MODULES= \
 	asn1ct_func \
 	asn1ct_gen \
 	asn1ct_gen_per \
-	asn1ct_gen_per_rt2ct \
 	asn1ct_name \
 	asn1ct_constructed_per \
 	asn1ct_constructed_ber_bin_v2 \
@@ -134,11 +131,11 @@ $(EBIN)/asn1ct.$(EMULATOR):asn1ct.erl
 	 $(V_ERLC) -b$(EMULATOR) -o$(EBIN) $(ERL_COMPILE_FLAGS) -Dvsn=\"$(VSN)\" $<
 
 $(EBIN)/asn1ct_func.$(EMULATOR): asn1ct_func.erl
-	 $(ERLC) -o$(EBIN) $(ERL_COMPILE_FLAGS) -I../rt_templates $<
+	 $(V_ERLC) -o$(EBIN) $(ERL_COMPILE_FLAGS) -I../rt_templates $<
 
 asn1ct_eval_%.erl: asn1ct_eval_%.funcs
-	erl -pa $(EBIN) -noshell -noinput \
-	   -run prepare_templates gen_asn1ct_eval $< >$@
+	$(gen_verbose)erl -pa $(EBIN) -noshell -noinput \
+	   -run prepare_templates gen_asn1ct_eval $<
 
 $(APP_TARGET): $(APP_SRC) ../vsn.mk
 	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
@@ -182,14 +179,14 @@ RT_TEMPLATES_ERL = $(RT_TEMPLATES:%=%.erl)
 RT_TEMPLATES_TARGET = $(RT_TEMPLATES:%=%.$(EMULATOR))
 
 asn1ct_rtt.erl: prepare_templates.$(EMULATOR) $(RT_TEMPLATES_TARGET)
-	erl -noshell -noinput -run prepare_templates gen_asn1ct_rtt \
-           $(RT_TEMPLATES_TARGET) >asn1ct_rtt.erl
+	$(gen_verbose)erl -noshell -noinput -run prepare_templates gen_asn1ct_rtt \
+           $(RT_TEMPLATES_TARGET)
 
 prepare_templates.$(EMULATOR): prepare_templates.erl
-	erlc prepare_templates.erl
+	$(V_ERLC) prepare_templates.erl
 
 asn1rtt_%.$(EMULATOR): asn1rtt_%.erl
-	erlc +debug_info $<
+	$(V_ERLC) +debug_info $<
 
 $(EVAL_CT_MODULES:%=%.erl): prepare_templates.$(EMULATOR) \
 			    $(EBIN)/asn1ct_rtt.$(EMULATOR)

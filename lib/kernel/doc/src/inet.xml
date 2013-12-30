@@ -76,11 +76,11 @@ FFFF::192.168.42.2
                 {16#3ffe,16#b80,16#1f8d,16#2,16#204,16#acff,16#fe17,16#bf38}
 fe80::204:acff:fe17:bf38
                 {16#fe80,0,0,0,0,16#204,16#acff,16#fe17,16#bf38}</code>
-    <p>A function that may be useful is <c>inet_parse:address/1</c>:</p>
+    <p>A function that may be useful is <seealso marker="#parse_address/1">parse_address/1</seealso>:</p>
     <pre>
-1> <input>inet_parse:address("192.168.42.2").</input>
+1> <input>inet:parse_address("192.168.42.2").</input>
 {ok,{192,168,42,2}}
-2> <input>inet_parse:address("FFFF::192.168.42.2").</input>
+2> <input>inet:parse_address("FFFF::192.168.42.2").</input>
 {ok,{65535,0,0,0,0,0,49320,10754}}</pre>
   </description>
 
@@ -375,6 +375,13 @@ fe80::204:acff:fe17:bf38
       </desc>
     </func>
     <func>
+      <name name="ntoa" arity="1" />
+      <fsummary>Convert IPv6 / IPV4 adress to ascii</fsummary>
+      <desc>
+	<p>Parses an <a href="#type-ip_address">ip_address()</a> and returns an IPv4 or IPv6 address string.</p>
+      </desc>
+    </func>
+    <func>
       <name name="parse_ipv4_address" arity="1" />
       <fsummary>Parse an IPv4 address</fsummary>
       <desc>
@@ -423,8 +430,56 @@ fe80::204:acff:fe17:bf38
       <name name="peername" arity="1"/>
       <fsummary>Return the address and port for the other end of a connection</fsummary>
       <desc>
-        <p>Returns the address and port for the other end of a
-          connection.</p>
+        <p>
+	  Returns the address and port for the other end of a
+          connection.
+	</p>
+	<p>
+	  Note that for SCTP sockets this function only returns
+	  one of the socket's peer addresses.  The function
+	  <seealso marker="#peernames/1">peernames/1,2</seealso>
+	  returns all.
+	</p>
+      </desc>
+    </func>
+    <func>
+      <name name="peernames" arity="1"/>
+      <fsummary>
+	Return all address/port numbers for the other end of a connection
+      </fsummary>
+      <desc>
+	<p>
+	  Equivalent to
+	  <seealso marker="#peernames/2"><c>peernames(<anno>Socket</anno>, 0)</c></seealso>.
+	  Note that this function's behaviour for an SCTP
+	  one-to-many style socket is not defined by the
+	  <url href="http://tools.ietf.org/html/draft-ietf-tsvwg-sctpsocket-13">SCTP Sockets API Extensions</url>.
+	</p>
+      </desc>
+    </func>
+    <func>
+      <name name="peernames" arity="2"/>
+      <fsummary>
+	Return all address/port numbers for the other end of a connection
+      </fsummary>
+      <desc>
+	<p>
+	  Returns a list of all address/port number pairs for the other end
+	  of a socket's association <c><anno>Assoc</anno></c>.
+	</p>
+	<p>
+	  This function can return multiple addresses for multihomed
+	  sockets such as SCTP sockets.  For other sockets it
+	  returns a one element list.
+	</p>
+	<p>
+	  Note that the <c><anno>Assoc</anno></c> parameter is by the
+	  <url href="http://tools.ietf.org/html/draft-ietf-tsvwg-sctpsocket-13">SCTP Sockets API Extensions</url>
+	  defined to be ignored for
+	  one-to-one style sockets.  What the special value <c>0</c>
+	  means hence its behaviour for one-to-many style sockets
+	  is unfortunately not defined.
+	</p>
       </desc>
     </func>
     <func>
@@ -439,6 +494,46 @@ fe80::204:acff:fe17:bf38
       <fsummary>Return the local address and port number for a socket</fsummary>
       <desc>
         <p>Returns the local address and port number for a socket.</p>
+	<p>
+	  Note that for SCTP sockets this function only returns
+	  one of the socket addresses.  The function
+	  <seealso marker="#socknames/1">socknames/1,2</seealso>
+	  returns all.
+	</p>
+      </desc>
+    </func>
+    <func>
+      <name name="socknames" arity="1"/>
+      <fsummary>Return all local address/port numbers for a socket</fsummary>
+      <desc>
+	<p>
+	  Equivalent to
+	  <seealso marker="#socknames/2"><c>socknames(<anno>Socket</anno>, 0)</c></seealso>.
+	</p>
+      </desc>
+    </func>
+    <func>
+      <name name="socknames" arity="2"/>
+      <fsummary>Return all local address/port numbers for a socket</fsummary>
+      <desc>
+	<p>
+	  Returns a list of all local address/port number pairs for a socket
+	  for the given association <c><anno>Assoc</anno></c>.
+	</p>
+	<p>
+	  This function can return multiple addresses for multihomed
+	  sockets such as SCTP sockets.  For other sockets it
+	  returns a one element list.
+	</p>
+	<p>
+	  Note that the <c><anno>Assoc</anno></c> parameter is by the
+	  <url href="http://tools.ietf.org/html/draft-ietf-tsvwg-sctpsocket-13">SCTP Sockets API Extensions</url>
+	  defined to be ignored for one-to-one style sockets.
+	  For one-to-many style sockets the special value <c>0</c>
+	  is defined to mean that the returned addresses shall be
+	  without regard to any particular association.
+	  How different SCTP implementations interprets this varies somewhat.
+	</p>
       </desc>
     </func>
     <func>
@@ -559,7 +654,7 @@ fe80::204:acff:fe17:bf38
               <c>[Byte1,Byte2|Binary]</c>.</p>
           </item>
 
-          <tag><c>{high_msgq_watermark, Size}</c> (TCP/IP sockets)</tag>
+          <tag><c>{high_msgq_watermark, Size}</c></tag>
           <item>
 	    <p>The socket message queue will be set into a busy
 	    state when the amount of data queued on the message
@@ -674,7 +769,7 @@ fe80::204:acff:fe17:bf38
 				  the flushing time-out in seconds.</p>
 		  </item>
 
-          <tag><c>{low_msgq_watermark, Size}</c> (TCP/IP sockets)</tag>
+          <tag><c>{low_msgq_watermark, Size}</c></tag>
           <item>
 	    <p>If the socket message queue is in a busy state, the
 	    socket message queue will be set in a not busy state when
@@ -714,6 +809,59 @@ fe80::204:acff:fe17:bf38
           <item>
 			  <p>Received <c>Packet</c> is delivered as defined by Mode.</p>
 		  </item>
+
+	  <tag><c>{netns, Namespace :: file:filename_all()}</c></tag>
+	  <item>
+	    <p>Set a network namespace for the socket. The <c>Namespace</c>
+	    parameter is a filename defining the namespace for example
+	    <c>"/var/run/netns/example"</c> typically created by the command
+	    <c>ip netns add example</c>. This option must be used in a
+	    function call that creates a socket i.e
+	    <seealso marker="gen_tcp#connect/3">
+	      gen_tcp:connect/3,4</seealso>,
+	    <seealso marker="gen_tcp#listen/2">
+	      gen_tcp:listen/2</seealso>,
+	    <seealso marker="gen_udp#open/1">
+	      gen_udp:open/1,2</seealso> or
+	    <seealso marker="gen_sctp#open/0">
+	      gen_sctp:open/0-2</seealso>.
+	    </p>
+	    <p>This option uses the Linux specific syscall
+	    <c>setns()</c> such as in Linux kernel 3.0 or later
+	    and therefore only exists when the runtime system
+	    has been compiled for such an operating system.
+	    </p>
+	    <p>
+	    The virtual machine also needs elevated privileges either
+	    running as superuser or (for Linux) having the capability
+	    <c>CAP_SYS_ADMIN</c> according to the documentation for setns(2).
+	    However, during testing also <c>CAP_SYS_PTRACE</c>
+	    and <c>CAP_DAC_READ_SEARCH</c> has proven to be necessary.
+	    Example:<code>
+setcap cap_sys_admin,cap_sys_ptrace,cap_dac_read_search+epi beam.smp
+</code>
+            Note also that the filesystem containing the virtual machine
+	    executable (<c>beam.smp</c> in the example above) has to be local,
+	    mounted without the <c>nosetuid</c> flag,
+	    support extended attributes and that
+	    the kernel has to support file capabilities.
+	    All this runs out of the box on at least Ubuntu 12.04 LTS,
+	    except that SCTP sockets appears to not support
+	    network namespaces.
+	    </p>
+	    <p>The <c>Namespace</c> is a file name and is encoded
+	    and decoded as discussed in
+	    <seealso marker="file">file</seealso>
+	    except that the emulator flag <c>+fnu</c> is ignored and
+	    <seealso marker="#getopts/2">getopts/2</seealso>
+	    for this option will return a binary for the filename
+	    if the stored filename can not be decoded,
+	    which should only happen if you set the option using a binary
+	    that can not be decoded with the emulator's filename encoding:
+	    <seealso marker="file#native_name_encoding/0">
+	      file:native_name_encoding/0</seealso>.
+	    </p>
+	  </item>
 
 		  <tag><c>list</c></tag>
           <item>

@@ -75,6 +75,7 @@
 -export([otp_9932/1]).
 -export([otp_9423/1]).
 -export([otp_10182/1]).
+-export([memory_check_summary/1]).
 
 -export([init_per_testcase/2, end_per_testcase/2]).
 %% Convenience for manual testing
@@ -149,7 +150,9 @@ all() ->
      give_away, setopts, bad_table, types,
      otp_10182,
      otp_9932,
-     otp_9423].
+     otp_9423,
+     
+     memory_check_summary]. % MUST BE LAST
 
 groups() -> 
     [{new, [],
@@ -185,13 +188,34 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     stop_spawn_logger(),
-    catch erts_debug:set_internal_state(available_internal_state, false).
+    catch erts_debug:set_internal_state(available_internal_state, false),
+    ok.
 
 init_per_group(_GroupName, Config) ->
 	Config.
 
 end_per_group(_GroupName, Config) ->
 	Config.
+
+%% Test that we did not have "too many" failed verify_etsmem()'s
+%% in the test suite.
+%% verify_etsmem() may give a low number of false positives
+%% as concurrent activities, such as lingering processes
+%% from earlier test suites, may do unrelated ets (de)allocations.
+memory_check_summary(_Config) ->
+    case whereis(ets_test_spawn_logger) of
+	undefined ->
+	    ?t:fail("No spawn logger exist");
+	_ ->
+	    ets_test_spawn_logger ! {self(), get_failed_memchecks},
+	    receive {get_failed_memchecks, FailedMemchecks} -> ok end,
+	    io:format("Failed memchecks: ~p\n",[FailedMemchecks]),
+	    if FailedMemchecks > 3 ->
+		    ct:fail("Too many failed (~p) memchecks", [FailedMemchecks]);
+	       true ->
+		    ok
+	    end
+    end.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -3218,6 +3242,7 @@ delete_large_tab_1(Name, Flags, Data, Fix) ->
 				end
 			end,
 			0),
+    SchedTracerMon = monitor(process, SchedTracer),
     ?line Loopers = start_loopers(erlang:system_info(schedulers),
 				  Prio,
 				  fun (_) -> erlang:yield() end,
@@ -3237,12 +3262,14 @@ delete_large_tab_1(Name, Flags, Data, Fix) ->
 		      N >= 5 -> ?line ok;
 		      true -> ?line ?t:fail()
 		  end
-	  end.
+	  end,
+    receive {'DOWN',SchedTracerMon,process,SchedTracer,_} -> ok end,
+    ok.
 
 delete_large_named_table(doc) ->
     "Delete a large name table and try to create a new table with the same name in another process.";
 delete_large_named_table(Config) when is_list(Config) ->    
-    ?line Data = [{erlang:phash2(I, 16#ffffff),I} || I <- lists:seq(1, 500000)],
+    ?line Data = [{erlang:phash2(I, 16#ffffff),I} || I <- lists:seq(1, 200000)],
     ?line EtsMem = etsmem(),
     repeat_for_opts(fun(Opts) -> delete_large_named_table_do(Opts,Data) end),
     ?line verify_etsmem(EtsMem),
@@ -3264,16 +3291,16 @@ delete_large_named_table_1(Name, Flags, Data, Fix) ->
 	    ?line lists:foreach(fun({K,_}) -> ets:delete(Tab, K) end, Data)
     end,
     Parent = self(),
-    Pid = my_spawn_link(fun() ->
-			     receive
-				 {trace,Parent,call,_} ->
-				     ets_new(Name, [named_table])
-			     end
-		     end),
-    ?line erlang:trace(self(), true, [call,{tracer,Pid}]),
-    ?line erlang:trace_pattern({ets,delete,1}, true, [global]),
-    ?line erlang:yield(), true = ets:delete(Tab),
-    ?line erlang:trace_pattern({ets,delete,1}, false, [global]),
+    {Pid, MRef} = my_spawn_opt(fun() ->
+				      receive
+					  ets_new ->
+					      ets_new(Name, [named_table])				      
+				      end
+			       end,
+			       [link, monitor]),
+    true = ets:delete(Tab),
+    Pid ! ets_new,
+    receive {'DOWN',MRef,process,Pid,_} -> ok end,
     ok.
 
 evil_delete(doc) ->
@@ -5599,17 +5626,25 @@ etsmem() ->
 	 MemInfo ->
 	     CS = lists:foldl(
 		    fun ({instance, _, L}, Acc) ->
-			    {value,{_,SBMBCS}} = lists:keysearch(sbmbcs, 1, L),
-			    {value,{_,MBCS}} = lists:keysearch(mbcs, 1, L),
-			    {value,{_,SBCS}} = lists:keysearch(sbcs, 1, L),
-			    [SBMBCS,MBCS,SBCS | Acc]
+			    {value,{mbcs,MBCS}} = lists:keysearch(mbcs, 1, L),
+			    {value,{sbcs,SBCS}} = lists:keysearch(sbcs, 1, L),
+			    NewAcc = [MBCS, SBCS | Acc],
+			    case lists:keysearch(mbcs_pool, 1, L) of
+				{value,{mbcs_pool, MBCS_POOL}} ->
+				    [MBCS_POOL|NewAcc];
+				_ -> NewAcc
+			    end
 		    end,
 		    [],
 		    MemInfo),
 	     lists:foldl(
 	       fun(L, {Bl0,BlSz0}) ->
-		       {value,{_,Bl,_,_}} = lists:keysearch(blocks, 1, L),
-		       {value,{_,BlSz,_,_}} = lists:keysearch(blocks_size, 1, L),
+		       {value,BlTup} = lists:keysearch(blocks, 1, L),
+		       blocks = element(1, BlTup),
+		       Bl = element(2, BlTup),
+		       {value,BlSzTup} = lists:keysearch(blocks_size, 1, L),	
+		       blocks_size = element(1, BlSzTup),
+		       BlSz = element(2, BlSzTup),
 		       {Bl0+Bl,BlSz0+BlSz}
 	       end, {0,0}, CS)
      end},
@@ -5632,7 +5667,8 @@ verify_etsmem({MemInfo,AllTabs}) ->
 	    io:format("Actual:   ~p", [MemInfo2]),
 	    io:format("Changed tables before: ~p\n",[AllTabs -- AllTabs2]),
 	    io:format("Changed tables after: ~p\n", [AllTabs2 -- AllTabs]),
-	    ?t:fail()
+	    ets_test_spawn_logger ! failed_memcheck,
+	    {comment, "Failed memory check"}
     end.
 
 
@@ -5654,10 +5690,10 @@ stop_loopers(Loopers) ->
 looper(Fun, State) ->
     looper(Fun, Fun(State)).
 
-spawn_logger(Procs) ->
+spawn_logger(Procs, FailedMemchecks) ->
     receive
 	{new_test_proc, Proc} ->
-	    spawn_logger([Proc|Procs]);
+	    spawn_logger([Proc|Procs], FailedMemchecks);
 	{sync_test_procs, Kill, From} ->
 	    lists:foreach(fun (Proc) when From == Proc ->
 				  ok;
@@ -5680,7 +5716,14 @@ spawn_logger(Procs) ->
 				  end
 			  end, Procs),
 	    From ! test_procs_synced,
-	    spawn_logger([From])
+	    spawn_logger([From], FailedMemchecks);
+
+	failed_memcheck ->
+	    spawn_logger(Procs, FailedMemchecks+1);
+
+	{Pid, get_failed_memchecks} ->
+	    Pid ! {get_failed_memchecks, FailedMemchecks},
+	    spawn_logger(Procs, FailedMemchecks)
     end.
 
 pid_status(Pid) ->
@@ -5696,7 +5739,7 @@ start_spawn_logger() ->
     case whereis(ets_test_spawn_logger) of
 	Pid when is_pid(Pid) -> true;
 	_ -> register(ets_test_spawn_logger,
-		      spawn_opt(fun () -> spawn_logger([]) end,
+		      spawn_opt(fun () -> spawn_logger([], 0) end,
 				[{priority, max}]))
     end.
 
@@ -5707,8 +5750,7 @@ start_spawn_logger() ->
 stop_spawn_logger() ->
     Mon = erlang:monitor(process, ets_test_spawn_logger),
     (catch exit(whereis(ets_test_spawn_logger), kill)),
-    receive {'DOWN', Mon, _, _, _} -> ok end,
-    ok.
+    receive {'DOWN', Mon, _, _, _} -> ok end.
 
 wait_for_test_procs() ->
     wait_for_test_procs(false).
@@ -5808,7 +5850,7 @@ spawn_monitor_with_pid(Pid, Fun, N) ->
 		  end) of
 	Pid ->
 	    {Pid, erlang:monitor(process, Pid)};
-	Other ->
+	_Other ->
 	    spawn_monitor_with_pid(Pid,Fun,N-1)
     end.
 
@@ -6114,11 +6156,18 @@ repeat_for_opts(F, OptGenList) ->
     repeat_for_opts(F, OptGenList, []).
 
 repeat_for_opts(F, [], Acc) ->
-    lists:map(fun(Opts) ->
-                    OptList = lists:filter(fun(E) -> E =/= void end, Opts),
-                    io:format("Calling with options ~p\n",[OptList]),
-		            F(OptList)
-	          end, Acc);
+    lists:foldl(fun(Opts, RV_Acc) ->
+			OptList = lists:filter(fun(E) -> E =/= void end, Opts),
+			io:format("Calling with options ~p\n",[OptList]),
+			RV = F(OptList),
+			case RV_Acc of
+			    {comment,_} -> RV_Acc;
+			    _ -> case RV of
+				     {comment,_} -> RV;
+				     _ -> [RV | RV_Acc]
+				 end
+			end
+	          end, [], Acc);
 repeat_for_opts(F, [OptList | Tail], []) when is_list(OptList) ->
     repeat_for_opts(F, Tail, [[Opt] || Opt <- OptList]);
 repeat_for_opts(F, [OptList | Tail], AccList) when is_list(OptList) ->

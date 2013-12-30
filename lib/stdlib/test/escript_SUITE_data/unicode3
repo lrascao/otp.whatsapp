@@ -1,5 +1,5 @@
 #!/usr/bin/env escript
-%% -*- erlang; coding: utf-8 -*-
+%% -*- erlang; coding: latin-1 -*-
 
 -export([main/1]).
 

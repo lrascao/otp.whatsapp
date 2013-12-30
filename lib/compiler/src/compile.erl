@@ -41,7 +41,8 @@
 
 -type option() :: atom() | {atom(), term()} | {'d', atom(), term()}.
 
--type err_info() :: {erl_scan:line(), module(), term()}. %% ErrorDescriptor
+-type err_info() :: {erl_scan:line() | 'none',
+		     module(), term()}. %% ErrorDescriptor
 -type errors()   :: [{file:filename(), [err_info()]}].
 -type warnings() :: [{file:filename(), [err_info()]}].
 -type mod_ret()  :: {'ok', module()}
@@ -599,7 +600,8 @@ standard_passes() ->
 
 core_passes() ->
     %% Optimization and transforms of Core Erlang code.
-    [{delay,
+    [{iff,clint0,?pass(core_lint_module)},
+     {delay,
       [{unless,no_copt,
        [{core_old_inliner,fun test_old_inliner/1,fun core_old_inliner/1},
 	{iff,doldinline,{listing,"oldinline"}},
@@ -1196,9 +1198,9 @@ abstract_code(#compile{code=Code,options=Opts,ofile=OFile}) ->
 
 encrypt_abs_code(Abstr, Key0) ->
     try
-	{Mode,RealKey} = generate_key(Key0),
+	RealKey = generate_key(Key0),
 	case start_crypto() of
-	    ok -> {ok,encrypt(Mode, RealKey, Abstr)};
+	    ok -> {ok,encrypt(RealKey, Abstr)};
 	    {error,_}=E -> E
 	end
     catch
@@ -1215,19 +1217,19 @@ start_crypto() ->
 	    {error,[{none,?MODULE,no_crypto}]}
     end.
 
-generate_key({Mode,String}) when is_atom(Mode), is_list(String) ->
-    {Mode,beam_lib:make_crypto_key(Mode, String)};
+generate_key({Type,String}) when is_atom(Type), is_list(String) ->
+    beam_lib:make_crypto_key(Type, String);
 generate_key(String) when is_list(String) ->
     generate_key({des3_cbc,String}).
 
-encrypt(des3_cbc=Mode, {K1,K2,K3, IVec}, Bin0) ->
-    Bin1 = case byte_size(Bin0) rem 8 of
+encrypt({des3_cbc=Type,Key,IVec,BlockSize}, Bin0) ->
+    Bin1 = case byte_size(Bin0) rem BlockSize of
 	       0 -> Bin0;
-	       N -> list_to_binary([Bin0,random_bytes(8-N)])
+	       N -> list_to_binary([Bin0,random_bytes(BlockSize-N)])
 	   end,
-    Bin = crypto:des3_cbc_encrypt(K1, K2, K3, IVec, Bin1),
-    ModeString = atom_to_list(Mode),
-    list_to_binary([0,length(ModeString),ModeString,Bin]).
+    Bin = crypto:block_encrypt(Type, Key, IVec, Bin1),
+    TypeString = atom_to_list(Type),
+    list_to_binary([0,length(TypeString),TypeString,Bin]).
 
 random_bytes(N) ->
     {A,B,C} = now(),
@@ -1289,10 +1291,10 @@ native_compile_1(St) ->
 	{error,R} ->
 	    case IgnoreErrors of
 		true ->
-		    Ws = [{St#compile.ifile,[{?MODULE,{native,R}}]}],
+		    Ws = [{St#compile.ifile,[{none,?MODULE,{native,R}}]}],
 		    {ok,St#compile{warnings=St#compile.warnings ++ Ws}};
 		false ->
-		    Es = [{St#compile.ifile,[{?MODULE,{native,R}}]}],
+		    Es = [{St#compile.ifile,[{none,?MODULE,{native,R}}]}],
 		    {error,St#compile{errors=St#compile.errors ++ Es}}
 	    end
     catch
@@ -1301,7 +1303,7 @@ native_compile_1(St) ->
 	    case IgnoreErrors of
 		true ->
 		    Ws = [{St#compile.ifile,
-			   [{?MODULE,{native_crash,R,Stk}}]}],
+			   [{none,?MODULE,{native_crash,R,Stk}}]}],
 		    {ok,St#compile{warnings=St#compile.warnings ++ Ws}};
 		false ->
 		    erlang:raise(Class, R, Stk)
@@ -1348,7 +1350,7 @@ save_binary(#compile{module=Mod,ofile=Outfile,
 		    save_binary_1(St);
 		_ ->
 		    Es = [{St#compile.ofile,
-			   [{?MODULE,{module_name,Mod,Base}}]}],
+			   [{none,?MODULE,{module_name,Mod,Base}}]}],
 		    {error,St#compile{errors=St#compile.errors ++ Es}}
 	    end
     end.
@@ -1362,20 +1364,20 @@ save_binary_1(St) ->
 		ok ->
 		    {ok,St};
 		{error,RenameError} ->
-		    Es0 = [{Ofile,[{?MODULE,{rename,Tfile,Ofile,
-					     RenameError}}]}],
+		    Es0 = [{Ofile,[{none,?MODULE,{rename,Tfile,Ofile,
+						  RenameError}}]}],
 		    Es = case file:delete(Tfile) of
 			     ok -> Es0;
 			     {error,DeleteError} ->
 				 Es0 ++
 				     [{Ofile,
-				       [{?MODULE,{delete_temp,Tfile,
-						  DeleteError}}]}]
+				       [{none,?MODULE,{delete_temp,Tfile,
+						       DeleteError}}]}]
 			 end,
 		    {error,St#compile{errors=St#compile.errors ++ Es}}
 	    end;
 	{error,_Error} ->
-	    Es = [{Tfile,[{compile,write_error}]}],
+	    Es = [{Tfile,[{none,compile,write_error}]}],
 	    {error,St#compile{errors=St#compile.errors ++ Es}}
     end.
 
@@ -1418,6 +1420,9 @@ report_warnings(#compile{options=Opts,warnings=Ws0}) ->
 	false -> ok
     end.
 
+format_message(F, P, [{none,Mod,E}|Es]) ->
+    M = {none,io_lib:format("~ts: ~s~ts\n", [F,P,Mod:format_error(E)])},
+    [M|format_message(F, P, Es)];
 format_message(F, P, [{{Line,Column}=Loc,Mod,E}|Es]) ->
     M = {{F,Loc},io_lib:format("~ts:~w:~w ~s~ts\n",
                                 [F,Line,Column,P,Mod:format_error(E)])},
@@ -1427,12 +1432,17 @@ format_message(F, P, [{Line,Mod,E}|Es]) ->
                                 [F,Line,P,Mod:format_error(E)])},
     [M|format_message(F, P, Es)];
 format_message(F, P, [{Mod,E}|Es]) ->
+    %% Not documented and not expected to be used any more, but
+    %% keep a while just in case.
     M = {none,io_lib:format("~ts: ~s~ts\n", [F,P,Mod:format_error(E)])},
     [M|format_message(F, P, Es)];
 format_message(_, _, []) -> [].
 
 %% list_errors(File, ErrorDescriptors) -> ok
 
+list_errors(F, [{none,Mod,E}|Es]) ->
+    io:fwrite("~ts: ~ts\n", [F,Mod:format_error(E)]),
+    list_errors(F, Es);
 list_errors(F, [{{Line,Column},Mod,E}|Es]) ->
     io:fwrite("~ts:~w:~w: ~ts\n", [F,Line,Column,Mod:format_error(E)]),
     list_errors(F, Es);
@@ -1440,6 +1450,8 @@ list_errors(F, [{Line,Mod,E}|Es]) ->
     io:fwrite("~ts:~w: ~ts\n", [F,Line,Mod:format_error(E)]),
     list_errors(F, Es);
 list_errors(F, [{Mod,E}|Es]) ->
+    %% Not documented and not expected to be used any more, but
+    %% keep a while just in case.
     io:fwrite("~ts: ~ts\n", [F,Mod:format_error(E)]),
     list_errors(F, Es);
 list_errors(_F, []) -> ok.
@@ -1544,7 +1556,7 @@ restore_expand_module([F|Fs]) ->
     [F|restore_expand_module(Fs)];
 restore_expand_module([]) -> [].
 
-
+
 -spec options() -> 'ok'.
 
 options() ->
@@ -1581,7 +1593,7 @@ help([_|T]) ->
 help(_) ->
     ok.
 
-
+
 %% compile(AbsFileName, Outfilename, Options)
 %%   Compile entry point for erl_compile.
 

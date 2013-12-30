@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -71,6 +71,6 @@ dec('AR', #diameter_packet
 dec('BR', #diameter_packet
            {msg = #recv_BR{'Origin-Host'  = ?HOST,
                            'Origin-Realm' = ?REALM},
-            errors = [{5008, ?NOT_MANDATORY_YYY},
-                      {5001, ?MANDATORY_XXX}]}) ->
+            errors = [{5001, ?MANDATORY_XXX},
+                      {5008, ?NOT_MANDATORY_YYY}]}) ->
     ok.

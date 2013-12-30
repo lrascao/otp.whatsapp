@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -270,8 +270,11 @@ service_prio(Config) when is_list(Config) ->
     ?line {ok, OldProcs} = get_current_procs(Config),
     ?line start_service(Name),
     ?line {ok, NewProcs} = get_current_procs(Config),
+    timer:sleep(2000),
+    ?line {ok, NewProcs2} = get_current_procs(Config),
     ?line remove_service(Name),
     ?line Diff = arrived_procs(OldProcs,NewProcs),
+    io:format("NewProcs ~p~n after sleep~n ~p~n",[Diff, arrived_procs(OldProcs,NewProcs2)]),
     %% Not really correct, could fail if another heart is
     %% started at the same time...
     ?line {value, {"heart.exe",_,"high"}} = 

@@ -18,10 +18,11 @@
 #
 include $(ERL_TOP)/make/target.mk
 
-
 SUB_DIRECTORIES = common
 ifeq ($(TARGET),win32)
 SUB_DIRECTORIES += win32
+else
+SUB_DIRECTORIES += unix
 endif
 
 include $(ERL_TOP)/make/otp_subdir.mk

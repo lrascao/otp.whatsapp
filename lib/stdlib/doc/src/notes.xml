@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -29,6 +29,294 @@
     <file>notes.xml</file>
   </header>
   <p>This document describes the changes made to the STDLIB application.</p>
+
+<section><title>STDLIB 1.19.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix typo in gen_server.erl. Thanks to Brian L. Troutwine.</p>
+          <p>
+	    Own Id: OTP-11398</p>
+        </item>
+        <item>
+          <p>
+	    Spec for atan2 should be atan2(Y, X), not atan2(X, Y).
+	    Thanks to Ary Borenszweig.</p>
+          <p>
+	    Own Id: OTP-11465</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Add XML marker for regexp syntax. Thanks to Håkan
+	    Mattson.</p>
+          <p>
+	    Own Id: OTP-11442</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>STDLIB 1.19.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p> The functions <c>dets:foldl/3</c>,
+	    <c>dets:foldr/3</c>, and <c>dets:traverse/2</c> did not
+	    release the table after having traversed the table to the
+	    end. The bug was introduced in R16B. (Thanks to Manuel
+	    Duran Aguete.) </p>
+          <p>
+	    Own Id: OTP-11245</p>
+        </item>
+        <item>
+	    <p> If the <c>fun M:F/A</c> construct was used
+	    erroneously the linter could crash. (Thanks to Mikhail
+	    Sobolev.) </p>
+          <p>
+	    Own Id: OTP-11254</p>
+        </item>
+        <item>
+	    <p> The specifications of <c>io_lib:fread/2,3</c> have
+	    been corrected. (Thanks to Chris King and Kostis Sagonas
+	    for pinpointing the bug.) </p>
+          <p>
+	    Own Id: OTP-11261</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Fixed type typo in gen_server.</p>
+          <p>
+	    Own Id: OTP-11200</p>
+        </item>
+        <item>
+          <p>
+	    Update type specs in filelib and io_prompt. Thanks to
+	    Jose Valim.</p>
+          <p>
+	    Own Id: OTP-11208</p>
+        </item>
+        <item>
+          <p>
+	    Fix typo in abcast() function comment. Thanks to Johannes
+	    Weissl.</p>
+          <p>
+	    Own Id: OTP-11219</p>
+        </item>
+        <item>
+          <p>
+	    Make edlin understand a few important control keys.
+	    Thanks to Stefan Zegenhagen.</p>
+          <p>
+	    Own Id: OTP-11251</p>
+        </item>
+        <item>
+          <p>
+	    Export the edge/0 type from the digraph module. Thanks to
+	    Alex Ronne Petersen.</p>
+          <p>
+	    Own Id: OTP-11266</p>
+        </item>
+        <item>
+          <p>
+	    Fix variable usage tracking in erl_lint and fixed unsafe
+	    variable tracking in try expressions. Thanks to Anthony
+	    Ramine.</p>
+          <p>
+	    Own Id: OTP-11268</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>STDLIB 1.19.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p> The Erlang scanner no longer accepts floating point
+	    numbers in the input string. </p>
+          <p>
+	    Own Id: OTP-10990</p>
+        </item>
+        <item>
+          <p>
+	    When converting a faulty binary to a list with
+	    unicode:characters_to_list, the error return value could
+	    contain a faulty "rest", i.e. the io_list of characters
+	    that could not be converted was wrong. This happened only
+	    if input was a sub binary and conversion was from utf8.
+	    This is now corrected.</p>
+          <p>
+	    Own Id: OTP-11080</p>
+        </item>
+        <item>
+	    <p>The type <c>hook_function()</c> has been corrected in
+	    <c>erl_pp</c>, the Erlang Pretty Printer. </p>
+	    <p>The printing of invalid forms, e.g. record field
+	    types, has also been fixed. It has been broken since
+	    R16B. </p>
+	    <p> (Thanks to Tom&#225;&#353; Janou&#353;ek.) </p>
+          <p>
+	    Own Id: OTP-11100</p>
+        </item>
+        <item>
+          <p>
+	    Fix receive support in erl_eval with a BEAM module.
+	    Thanks to Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11137</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Delete obsolete note about simple-one-for-one supervisor.
+	    Thanks to Magnus Henoch.</p>
+          <p>
+	    Own Id: OTP-10938</p>
+        </item>
+        <item>
+	    <p> When selecting encoding of a script written in Erlang
+	    (<c>escript</c>) the optional directive on the second
+	    line is now recognized. </p>
+          <p>
+	    Own Id: OTP-10951</p>
+        </item>
+        <item>
+	    <p> The function <c>erl_parse:abstract/2</c> has been
+	    documented. </p>
+          <p>
+	    Own Id: OTP-10992</p>
+        </item>
+        <item>
+          <p>
+	    Integrate elliptic curve contribution from Andreas
+	    Schultz </p>
+          <p>
+	    In order to be able to support elliptic curve cipher
+	    suites in SSL/TLS, additions to handle elliptic curve
+	    infrastructure has been added to public_key and crypto.</p>
+          <p>
+	    This also has resulted in a rewrite of the crypto API to
+	    gain consistency and remove unnecessary overhead. All OTP
+	    applications using crypto has been updated to use the new
+	    API.</p>
+          <p>
+	    Impact: Elliptic curve cryptography (ECC) offers
+	    equivalent security with smaller key sizes than other
+	    public key algorithms. Smaller key sizes result in
+	    savings for power, memory, bandwidth, and computational
+	    cost that make ECC especially attractive for constrained
+	    environments.</p>
+          <p>
+	    Own Id: OTP-11009</p>
+        </item>
+        <item>
+          <p>
+	    Added sys:get_state/1,2 and sys:replace_state/2,3. Thanks
+	    to Steve Vinoski.</p>
+          <p>
+	    Own Id: OTP-11013</p>
+        </item>
+        <item>
+          <p>
+	    Optimizations to gen mechanism. Thanks to Loïc Hoguin.</p>
+          <p>
+	    Own Id: OTP-11025</p>
+        </item>
+        <item>
+          <p>
+	    Optimizations to gen.erl. Thanks to Loïc Hoguin.</p>
+          <p>
+	    Own Id: OTP-11035</p>
+        </item>
+        <item>
+          <p>
+	    Use erlang:demonitor(Ref, [flush]) where applicable.
+	    Thanks to Loïc Hoguin.</p>
+          <p>
+	    Own Id: OTP-11039</p>
+        </item>
+        <item>
+	    <p>Erlang source files with non-ASCII characters are now
+	    encoded in UTF-8 (instead of latin1).</p>
+          <p>
+	    Own Id: OTP-11041 Aux Id: OTP-10907 </p>
+        </item>
+        <item>
+          <p>
+	    Fix rest_for_one and one_for_all restarting a child not
+	    terminated. Thanks to James Fish.</p>
+          <p>
+	    Own Id: OTP-11042</p>
+        </item>
+        <item>
+          <p>
+	    Fix excessive CPU consumption of timer_server. Thanks to
+	    Aliaksey Kandratsenka.</p>
+          <p>
+	    Own Id: OTP-11053</p>
+        </item>
+        <item>
+          <p>
+	    Rename and document lists:zf/2 as lists:filtermap/2.
+	    Thanks to Anthony Ramine.</p>
+          <p>
+	    Own Id: OTP-11078</p>
+        </item>
+        <item>
+          <p>
+	    Fixed an inconsistent state in epp. Thanks to Anthony
+	    Ramine</p>
+          <p>
+	    Own Id: OTP-11079</p>
+        </item>
+        <item>
+          <p>
+	    c:ls(File) will now print File, similar to ls(1) in Unix.
+	    The error messages have also been improved. (Thanks to
+	    Bengt Kleberg.)</p>
+          <p>
+	    Own Id: OTP-11108</p>
+        </item>
+        <item>
+          <p>
+	    Support callback attributes in erl_pp. Thanks to Anthony
+	    Ramine.</p>
+          <p>
+	    Own Id: OTP-11140</p>
+        </item>
+        <item>
+          <p>
+	    Improve erl_lint performance. Thanks to José Valim.</p>
+          <p>
+	    Own Id: OTP-11143</p>
+        </item>
+      </list>
+    </section>
+
+</section>
 
 <section><title>STDLIB 1.19.1</title>
 
@@ -124,7 +412,7 @@
           <p>
 	    Two adjacent * used as a single pattern will match all
 	    files and zero or more directories and subdirectories.
-	    (Thanks to Jos� Valim)</p>
+	    (Thanks to José Valim)</p>
           <p>
 	    Own Id: OTP-10431</p>
         </item>
@@ -362,7 +650,7 @@
 	    Fix filename:nativename/1 on Win32</p>
           <p>
 	    Don't choke on paths given as binary argument on Win32.
-	    Thanks to Jan Kl�tzke</p>
+	    Thanks to Jan Klötzke</p>
           <p>
 	    Own Id: OTP-10188</p>
         </item>
@@ -471,7 +759,7 @@
         <item>
           <p>
 	    Fix the type spec from the doc of binary:part/3 (Thanks
-	    to Ricardo Catalinas Jim�nez)</p>
+	    to Ricardo Catalinas Jiménez)</p>
           <p>
 	    Own Id: OTP-9920</p>
         </item>
@@ -3036,7 +3324,7 @@
 	    It is now possible to hibernate a
 	    gen_server/gen_event/gen_fsm. In gen_server and gen_fsm,
 	    hibernation is triggered by returning the atom
-	    'hibernate'�instead of a timeout value. In the gen_event
+	    'hibernate' instead of a timeout value. In the gen_event
 	    case hibernation is triggered by a event handler
 	    returning a tuple with an extra element containing the
 	    atom 'hibernate'.</p>

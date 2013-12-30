@@ -45,7 +45,8 @@
 -export([alloc_info/1, alloc_sizes/1]).
 
 -export([gather_sched_wall_time_result/1,
-	 await_sched_wall_time_modifications/2]).
+	 await_sched_wall_time_modifications/2,
+	 gather_gc_info_result/1]).
 
 -deprecated([hash/2]).
 
@@ -187,6 +188,7 @@
       'busy_port' |
       'busy_dist_port' |
       {'long_gc', non_neg_integer()} |
+      {'long_schedule', non_neg_integer()} |
       {'large_heap', non_neg_integer()}.
 
 
@@ -1071,8 +1073,8 @@ module_loaded(_Module) ->
 %% monitor/2
 -spec monitor(Type, Item) -> MonitorRef when
       Type :: process,
-      Item :: pid() | Module | {Module, Node},
-      Module :: module(),
+      Item :: pid() | RegName | {RegName, Node},
+      RegName :: module(),
       Node :: node(),
       MonitorRef :: reference().
 monitor(_Type, _Item) ->
@@ -1785,7 +1787,7 @@ process_flag(_Flag, _Value) ->
       links |
       last_calls |
       memory |
-      message_que_len |
+      message_queue_len |
       messages |
       min_heap_size |
       min_bin_vheap_size |
@@ -1824,7 +1826,7 @@ process_flag(_Flag, _Value) ->
       {links, PidsAndPorts :: [pid() | port()]} |
       {last_calls, false | (Calls :: [mfa()])} |
       {memory, Size :: non_neg_integer()} |
-      {message_que_len, MessageQueueLen :: non_neg_integer()} |
+      {message_queue_len, MessageQueueLen :: non_neg_integer()} |
       {messages, MessageQueue :: [term()]} |
       {min_heap_size, MinHeapSize :: non_neg_integer()} |
       {min_bin_vheap_size, MinBinVHeapSize :: non_neg_integer()} |
@@ -1905,11 +1907,11 @@ setelement(_Index, _Tuple1, _Value) ->
       Function :: atom(),
       Args :: [term()],
       Options :: [Option],
-      Option :: link | monitor | {priority, Level}
+      Option :: link | monitor
+              | {priority, Level :: priority_level()}
               | {fullsweep_after, Number :: non_neg_integer()}
               | {min_heap_size, Size :: non_neg_integer()}
-              | {min_bin_vheap_size, VSize :: non_neg_integer()},
-      Level :: low | normal | high.
+              | {min_bin_vheap_size, VSize :: non_neg_integer()}.
 spawn_opt(_Tuple) ->
    erlang:nif_error(undefined).
 
@@ -2086,7 +2088,7 @@ tuple_to_list(_Tuple) ->
          ({allocator_sizes, Alloc}) -> [_] when %% More or less anything
       Alloc :: atom();
          (build_type) -> opt | debug | purify | quantify | purecov |
-                         gcov | valgrind | gprof | lcnt;
+                         gcov | valgrind | gprof | lcnt | frmptr;
          (c_compiler_used) -> {atom(), term()};
          (check_io) -> [_];
          (compat_rel) -> integer();
@@ -2097,13 +2099,14 @@ tuple_to_list(_Tuple) ->
          (creation) -> integer();
          (debug_compiled) -> boolean();
          (dist) -> binary();
+         (dist_buf_busy_limit) -> non_neg_integer();
          (dist_ctrl) -> {Node :: node(),
                          ControllingEntity :: port() | pid()};
          (driver_version) -> string();
 	 (dynamic_trace) -> none | dtrace | systemtap;
          (dynamic_trace_probes) -> boolean();
          (elib_malloc) -> false;
-         (dist_buf_busy_limit) -> non_neg_integer();
+         (ets_limit) -> pos_integer();
          (fullsweep_after) -> {fullsweep_after, non_neg_integer()};
          (garbage_collection) -> [{atom(), integer()}];
          (heap_sizes) -> [non_neg_integer()];
@@ -2244,11 +2247,11 @@ spawn_monitor(M, F, A) ->
 -spec spawn_opt(Fun, Options) -> pid() | {pid(), reference()} when
       Fun :: function(),
       Options :: [Option],
-      Option :: link | monitor | {priority, Level}
+      Option :: link | monitor
+              | {priority, Level :: priority_level()}
               | {fullsweep_after, Number :: non_neg_integer()}
               | {min_heap_size, Size :: non_neg_integer()}
-              | {min_bin_vheap_size, VSize :: non_neg_integer()},
-      Level :: low | normal | high.
+              | {min_bin_vheap_size, VSize :: non_neg_integer()}.
 spawn_opt(F, O) when erlang:is_function(F) ->
     spawn_opt(erlang, apply, [F, []], O);
 spawn_opt({M,F}=MF, O) when erlang:is_atom(M), erlang:is_atom(F) ->
@@ -2262,11 +2265,11 @@ spawn_opt(F, O) ->
       Node :: node(),
       Fun :: function(),
       Options :: [Option],
-      Option :: link | monitor | {priority, Level}
+      Option :: link | monitor
+              | {priority, Level :: priority_level()}
               | {fullsweep_after, Number :: non_neg_integer()}
               | {min_heap_size, Size :: non_neg_integer()}
-              | {min_bin_vheap_size, VSize :: non_neg_integer()},
-      Level :: low | normal | high.
+              | {min_bin_vheap_size, VSize :: non_neg_integer()}.
 spawn_opt(N, F, O) when N =:= erlang:node() ->
     spawn_opt(F, O);
 spawn_opt(N, F, O) when erlang:is_function(F) ->
@@ -2354,11 +2357,11 @@ spawn_link(N,M,F,A) ->
       Function :: atom(),
       Args :: [term()],
       Options :: [Option],
-      Option :: link | monitor | {priority, Level}
+      Option :: link | monitor
+              | {priority, Level :: priority_level()}
               | {fullsweep_after, Number :: non_neg_integer()}
               | {min_heap_size, Size :: non_neg_integer()}
-              | {min_bin_vheap_size, VSize :: non_neg_integer()},
-      Level :: low | normal | high.
+              | {min_bin_vheap_size, VSize :: non_neg_integer()}.
 spawn_opt(M, F, A, Opts) ->
     case catch erlang:spawn_opt({M,F,A,Opts}) of
 	{'EXIT',{Reason,_}} ->
@@ -2374,11 +2377,11 @@ spawn_opt(M, F, A, Opts) ->
       Function :: atom(),
       Args :: [term()],
       Options :: [Option],
-      Option :: link | monitor | {priority, Level}
+      Option :: link | monitor
+              | {priority, Level :: priority_level()}
               | {fullsweep_after, Number :: non_neg_integer()}
               | {min_heap_size, Size :: non_neg_integer()}
-              | {min_bin_vheap_size, VSize :: non_neg_integer()},
-      Level :: low | normal | high.
+              | {min_bin_vheap_size, VSize :: non_neg_integer()}.
 spawn_opt(N, M, F, A, O) when N =:= erlang:node(),
 			      erlang:is_atom(M), erlang:is_atom(F),
                               erlang:is_list(A), erlang:is_list(O) ->
@@ -2705,26 +2708,14 @@ port_info(Port, Item) ->
       Port :: port() | atom(),
       Data :: term().
     
-port_set_data(Port, Data) ->
-    case case erts_internal:port_set_data(Port, Data) of
-	     Ref when erlang:is_reference(Ref) -> receive {Ref, Res} -> Res end;
-	     Res -> Res
-	 end of
-	badarg -> erlang:error(badarg, [Port, Data]);
-	Result -> Result
-    end.
+port_set_data(_Port, _Data) ->
+    erlang:nif_error(undefined).
 
 -spec erlang:port_get_data(Port) -> term() when
       Port :: port() | atom().
 
-port_get_data(Port) ->
-    case case erts_internal:port_get_data(Port) of
-	     Ref when erlang:is_reference(Ref) -> receive {Ref, Res} -> Res end;
-	     Res -> Res
-	 end of
-	{ok, Data} -> Data;
-	Error -> erlang:error(Error, [Port])
-    end.
+port_get_data(_Port) ->
+    erlang:nif_error(undefined).
 
 %%
 %% If the emulator wants to perform a distributed command and
@@ -2901,22 +2892,23 @@ integer_to_binary(I, Base)
   when erlang:is_integer(I), erlang:is_integer(Base),
        Base >= 2, Base =< 1+$Z-$A+10 ->
     if I < 0 ->
-	    <<"$-",(integer_to_binary(-I, Base, []))/binary>>;
+	    <<$-,(integer_to_binary(-I, Base, <<>>))/binary>>;
        true ->
 	    integer_to_binary(I, Base, <<>>)
     end;
 integer_to_binary(I, Base) ->
     erlang:error(badarg, [I, Base]).
 
-integer_to_binary(0, _Base, R0) ->
-    R0;
 integer_to_binary(I0, Base, R0) ->
     D = I0 rem Base,
     I1 = I0 div Base,
-    if D >= 10 ->
-	    integer_to_binary(I1,Base,<<(D-10+$A),R0/binary>>);
-       true ->
-	    integer_to_binary(I1,Base,<<(D+$0),R0/binary>>)
+    R1 = if
+             D >= 10 -> <<(D-10+$A),R0/binary>>;
+             true -> <<(D+$0),R0/binary>>
+         end,
+    if
+        I1 =:= 0 -> R1;
+        true -> integer_to_binary(I1, Base, R1)
     end.
 
 %% erlang:flush_monitor_message/2 is for internal use only!
@@ -3125,8 +3117,8 @@ max(A, _) -> A.
                      | 'atom' | 'atom_used' | 'binary' | 'code' | 'ets'
                      | 'low' | 'maximum'.
 
--define(CARRIER_ALLOCS, [mseg_alloc, sbmbc_alloc, sbmbc_low_alloc]).
--define(LOW_ALLOCS, [sbmbc_low_alloc, ll_low_alloc, std_low_alloc]).
+-define(CARRIER_ALLOCS, [mseg_alloc]).
+-define(LOW_ALLOCS, [ll_low_alloc, std_low_alloc]).
 -define(ALL_NEEDED_ALLOCS, (erlang:system_info(alloc_util_allocators)
 			    -- ?CARRIER_ALLOCS)).
 
@@ -3293,12 +3285,16 @@ get_blocks_size([{blocks_size, Sz, _, _} | Rest], Acc) ->
     get_blocks_size(Rest, Acc+Sz);
 get_blocks_size([{_, _, _, _} | Rest], Acc) ->
     get_blocks_size(Rest, Acc);
+get_blocks_size([{blocks_size, Sz} | Rest], Acc) ->
+    get_blocks_size(Rest, Acc+Sz);
+get_blocks_size([{_, _} | Rest], Acc) ->
+    get_blocks_size(Rest, Acc);
 get_blocks_size([], Acc) ->
     Acc.
 
 blocks_size([{Carriers, SizeList} | Rest], Acc) when Carriers == mbcs;
-						     Carriers == sbcs;
-						     Carriers == sbmbcs ->
+						     Carriers == mbcs_pool;
+						     Carriers == sbcs ->
     blocks_size(Rest, get_blocks_size(SizeList, Acc));
 blocks_size([_ | Rest], Acc) ->
     blocks_size(Rest, Acc);
@@ -3317,6 +3313,9 @@ get_fix_proc([], Acc) ->
 
 fix_proc([{fix_types, SizeList} | _Rest], Acc) ->
     get_fix_proc(SizeList, Acc);
+fix_proc([{fix_types, Mask, SizeList} | _Rest], Acc) ->
+    {A, U} = get_fix_proc(SizeList, Acc),
+    {Mask, A, U};
 fix_proc([_ | Rest], Acc) ->
     fix_proc(Rest, Acc);
 fix_proc([], Acc) ->
@@ -3368,13 +3367,21 @@ au_mem_data(#memory{total = Tot,
 		    processes_used = ProcU,
 		    system = Sys} = Mem,
 	    [{fix_alloc, _, Data} | Rest]) ->
-    {A, U} = fix_proc(Data, {0, 0}),
     Sz = blocks_size(Data, 0),
-    au_mem_data(Mem#memory{total = Tot+Sz,
-			   processes = Proc+A,
-			   processes_used = ProcU+U,
-			   system = Sys+Sz-A},
-		Rest);
+    case fix_proc(Data, {0, 0}) of
+	{A, U} ->
+	    au_mem_data(Mem#memory{total = Tot+Sz,
+				   processes = Proc+A,
+				   processes_used = ProcU+U,
+				   system = Sys+Sz-A},
+			Rest);
+	{Mask, A, U} ->
+	    au_mem_data(Mem#memory{total = Tot+Sz,
+				   processes = Mask band (Proc+A),
+				   processes_used = Mask band (ProcU+U),
+				   system = Mask band (Sys+Sz-A)},
+			Rest)
+    end;
 au_mem_data(#memory{total = Tot,
 		    system = Sys,
 		    low = Low} = Mem,
@@ -3392,7 +3399,7 @@ au_mem_data(EMD, []) ->
 
 au_mem_data(Allocs) ->
     Ref = erlang:make_ref(),
-    erlang:system_info({allocator_sizes, Ref, Allocs}),
+    erlang:system_info({memory_internal, Ref, Allocs}),
     receive_emd(Ref).
 
 receive_emd(_Ref, EMD, 0) ->
@@ -3492,6 +3499,8 @@ mk_res_list([]) ->
 mk_res_list([Alloc | Rest]) ->
     [{Alloc, []} | mk_res_list(Rest)].
 
+insert_instance(I, N, Rest) when erlang:is_atom(N) ->
+    [{N, I} | Rest];
 insert_instance(I, N, []) ->
     [{instance, N, I}];
 insert_instance(I, N, [{instance, M, _}|_] = Rest) when N < M ->
@@ -3548,3 +3557,18 @@ sched_wall_time(Ref, N, Acc) ->
 	{Ref, undefined} -> sched_wall_time(Ref, N-1, undefined);
 	{Ref, SWT} -> sched_wall_time(Ref, N-1, [SWT|Acc])
     end.
+
+-spec erlang:gather_gc_info_result(Ref) ->
+   {number(),number(),0} when Ref :: reference().
+
+gather_gc_info_result(Ref) when erlang:is_reference(Ref) ->
+    gc_info(Ref, erlang:system_info(schedulers), {0,0}).
+
+gc_info(_Ref, 0, {Colls,Recl}) ->
+    {Colls,Recl,0};
+gc_info(Ref, N, {OrigColls,OrigRecl}) ->
+    receive
+	{Ref, {_,Colls, Recl}} -> 
+	    gc_info(Ref, N-1, {Colls+OrigColls,Recl+OrigRecl})
+    end.
+

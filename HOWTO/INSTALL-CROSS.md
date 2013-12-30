@@ -4,14 +4,7 @@ Cross Compiling Erlang/OTP
 Introduction
 ------------
 
-This document describes how to cross compile Erlang/OTP-%OTP-REL%. Note that
-the support for cross compiling Erlang/OTP should be considered as
-experimental. As far as we know, the %OTP-REL% release should cross compile
-fine, but since we currently have a very limited set of cross compilation
-environments to test with we cannot be sure. The cross compilation support
-will remain in an experimental state until we get a lot more cross compilation
-environments to test with.
-
+This document describes how to cross compile Erlang/OTP-%OTP-REL%. 
 You are advised to read the whole document before attempting to cross
 compile Erlang/OTP. However, before reading this document, you should read
 the [$ERL_TOP/HOWTO/INSTALL.md][] document which describes building and installing
@@ -521,6 +514,11 @@ When a variable has been set, no warning will be issued.
 
 *   `erl_xcomp_reliable_fpe` - `yes|no`. Defaults to `no`. If `yes`, the target
     system must have reliable floating point exceptions.
+
+*   `erl_xcomp_posix_memalign` - `yes|no`. Defaults to `yes` if `posix_memalign`
+    system call exists; otherwise `no`. If `yes`, the target system must have a
+    `posix_memalign` implementation that accepts larger than page size
+    alignment.
 
 Copyright and License
 ---------------------

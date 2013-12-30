@@ -951,10 +951,10 @@ do_trav(Proc, Acc, Fun) ->
 	    Error
     end.
     
-do_trav(#dets_cont{bin = eof}, _Proc, Acc, _Fun) ->
-    Acc;
 do_trav(State, Proc, Acc, Fun) ->
     case req(Proc, {match_init, State, safe}) of
+        '$end_of_table'->
+            Acc;
 	{cont, {Bins, NewState}} ->
 	    do_trav_bins(NewState, Proc, Acc, Fun, lists:reverse(Bins));
 	Error ->
@@ -1246,13 +1246,8 @@ req(Proc, R) ->
 	{'DOWN', Ref, process, Proc, _Info} ->
             badarg;
 	{Proc, Reply} ->
-	    erlang:demonitor(Ref),
-	    receive 
-		{'DOWN', Ref, process, Proc, _Reason} ->
-                    Reply
-	    after 0 ->
-                    Reply
-	    end
+	    erlang:demonitor(Ref, [flush]),
+	    Reply
     end.
 
 %% Inlined.
@@ -2837,14 +2832,18 @@ fsck_try(Fd, Tab, FH, Fname, SlotNumbers, Version) ->
 
 tempfile(Fname) ->
     Tmp = lists:concat([Fname, ".TMP"]),
+    tempfile(Tmp, 10).
+
+tempfile(Tmp, 0) ->
+    Tmp;
+tempfile(Tmp, N) ->
     case file:delete(Tmp) of
         {error, eacces} -> % 'dets_process_died' happened anyway... (W-nd-ws)
-            timer:sleep(5000),
-            file:delete(Tmp);
+            timer:sleep(1000),
+            tempfile(Tmp, N-1);
         _ ->
-            ok
-    end,
-    Tmp.
+            Tmp
+    end.
 
 %% -> {ok, NewHead} | {try_again, integer()} | Error
 fsck_try_est(Head, Fd, Fname, SlotNumbers, FH) ->

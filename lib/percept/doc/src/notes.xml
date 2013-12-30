@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -31,6 +31,38 @@
     <file>notes.xml</file>
   </header>
   <p>This document describes the changes made to the Percept application.</p>
+
+<section><title>Percept 0.8.8.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The encoding of the <c>notes.xml</c> file has been
+	    changed from latin1 to utf-8 to avoid future merge
+	    problems.</p>
+          <p>
+	    Own Id: OTP-11310</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Percept 0.8.8.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+	    <p> Postscript files no longer needed for the generation
+	    of PDF files have been removed. </p>
+          <p>
+	    Own Id: OTP-11016</p>
+        </item>
+      </list>
+    </section>
+
+</section>
 
 <section><title>Percept 0.8.8</title>
 
@@ -280,7 +312,7 @@
       <list>
         <item>
 	    <p>Performance enhancement for the egd render engine
-	    (Thanks to Magnus Thoäng).</p>
+	    (Thanks to Magnus ThoÃ¤ng).</p>
           <p>
 	    Own Id: OTP-7616</p>
         </item>

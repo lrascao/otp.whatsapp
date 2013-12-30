@@ -1,3 +1,4 @@
+%% -*- coding: utf-8 -*-
 %%
 %% %CopyrightBegin%
 %%
@@ -122,7 +123,7 @@ start_restricted_from_shell(Config) when is_list(Config) ->
 			       "test_restricted.erl"),
     Contents = <<"-module(test_restricted).
                   -export([local_allowed/3, non_local_allowed/3]).
-                  local_allowed(i,[],State) ->
+                  local_allowed(m,[],State) ->
                       {true,State};
                   local_allowed(ugly,[],_State) ->
                       non_conforming_reply;
@@ -146,7 +147,7 @@ start_restricted_from_shell(Config) when is_list(Config) ->
 			 "test_restricted) end.">>),
     ?line {ok, test_restricted} = 
 	application:get_env(stdlib, restricted_shell),
-    ?line "Pid" ++ _ = t(<<"begin i() end.">>),
+    ?line "Module" ++ _ = t(<<"begin m() end.">>),
     ?line "exception exit: restricted shell does not allow c(foo)" = 
 	comm_err(<<"begin c(foo) end.">>),
     ?line "exception exit: restricted shell does not allow init:stop()" = 
@@ -199,9 +200,9 @@ start_restricted_on_command_line(Config) when is_list(Config) ->
 				 "-pa "++?config(priv_dir,Config)++ 
 				 " -stdlib restricted_shell foo"),
     ?line "Warning! Restricted shell module foo not found: nofile"++_ = 
-	t({Node, <<"begin i() end.">>}),
-    ?line "exception exit: restricted shell does not allow i()" = 
-	comm_err({Node, <<"begin i() end.">>}),
+	t({Node, <<"begin m() end.">>}),
+    ?line "exception exit: restricted shell does not allow m()" =
+	comm_err({Node, <<"begin m() end.">>}),
     ?line [ok] = 
 	(catch scan({Node, <<"begin q() end.">>})),
     ?line test_server:stop_node(Node),
@@ -209,7 +210,7 @@ start_restricted_on_command_line(Config) when is_list(Config) ->
 			       "test_restricted2.erl"),
     Contents = <<"-module(test_restricted2).
                   -export([local_allowed/3, non_local_allowed/3]).
-                  local_allowed(i,[],State) ->
+                  local_allowed(m,[],State) ->
                       {true,State};
                   local_allowed(_,_,State) ->
                       {false,State}.
@@ -225,7 +226,7 @@ start_restricted_on_command_line(Config) when is_list(Config) ->
     ?line {ok,Node2} = start_node(shell_suite_helper_2,
 				 "-pa "++?config(priv_dir,Config)++ 
 				 " -stdlib restricted_shell test_restricted2"),
-    ?line "Pid" ++ _ = t({Node2,<<"begin i() end.">>}),
+    ?line "Module" ++ _ = t({Node2,<<"begin m() end.">>}),
     ?line "exception exit: restricted shell does not allow c(foo)" = 
 	comm_err({Node2,<<"begin c(foo) end.">>}),
     ?line "exception exit: restricted shell does not allow init:stop()" = 
@@ -254,7 +255,7 @@ restricted_local(Config) when is_list(Config) ->
 			       "test_restricted_local.erl"),
     Contents = <<"-module(test_restricted_local).
                   -export([local_allowed/3, non_local_allowed/3]).
-                  local_allowed(i,[],State) ->
+                  local_allowed(m,[],State) ->
                       {true,State};
                   local_allowed(banan,_,State) ->
                       {true,State};
@@ -2820,7 +2821,7 @@ otp_10302(Config) when is_list(Config) ->
     
     "ok.\n** exception error: an error occurred when evaluating"
         " an arithmetic expression\n     in operator  '/'/2\n"
-        "        called as <<\"ª\">> / <<\"ª\">>.\n" = t({Node,Test7}),
+        "        called as <<\"Âª\">> / <<\"Âª\">>.\n" = t({Node,Test7}),
     Test8 =
         <<"begin
                A = [1089],

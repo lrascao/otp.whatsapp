@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1999-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -2184,7 +2184,7 @@ trace_gc(Process *p, Eterm what)
 	AM_bin_old_vheap_block_size
     };
 
-    Uint values[] = {
+    UWord values[] = {
 	OLD_HEAP(p) ? OLD_HEND(p) - OLD_HEAP(p) : 0,
 	HEAP_SIZE(p),
 	MBUF_SIZE(p),
@@ -2198,7 +2198,7 @@ trace_gc(Process *p, Eterm what)
 	BIN_OLD_VHEAP_SZ(p)
     };
 #define LOCAL_HEAP_SIZE						\
-    (sizeof(values)/sizeof(Eterm)) *				\
+    (sizeof(values)/sizeof(*values)) *				\
 	(2/*cons*/ + 3/*2-tuple*/ + BIG_UINT_HEAP_SIZE) +	\
 	5/*4-tuple */ + TS_HEAP_WORDS
     DeclareTmpHeap(local_heap,LOCAL_HEAP_SIZE,p);
@@ -2206,7 +2206,7 @@ trace_gc(Process *p, Eterm what)
     Eterm* limit;
 #endif
 
-    ASSERT(sizeof(values)/sizeof(Uint) == sizeof(tags)/sizeof(Eterm));
+    ASSERT(sizeof(values)/sizeof(*values) == sizeof(tags)/sizeof(Eterm));
 
     UseTmpHeap(LOCAL_HEAP_SIZE,p);
 
@@ -2214,9 +2214,9 @@ trace_gc(Process *p, Eterm what)
 	hp = local_heap;
 #ifdef DEBUG
 	size = 0;
-	(void) erts_bld_atom_uint_2tup_list(NULL,
+	(void) erts_bld_atom_uword_2tup_list(NULL,
 					    &size,
-					    sizeof(values)/sizeof(Uint),
+					    sizeof(values)/sizeof(*values),
 					    tags,
 					    values);
 	size += 5/*4-tuple*/ + TS_SIZE(p);
@@ -2229,9 +2229,9 @@ trace_gc(Process *p, Eterm what)
 			    ERTS_TRACE_FLAGS(p));
 
 	size = 0;
-	(void) erts_bld_atom_uint_2tup_list(NULL,
+	(void) erts_bld_atom_uword_2tup_list(NULL,
 					    &size,
-					    sizeof(values)/sizeof(Uint),
+					    sizeof(values)/sizeof(*values),
 					    tags,
 					    values);
 	size += 5/*4-tuple*/ + TS_SIZE(p);
@@ -2244,9 +2244,9 @@ trace_gc(Process *p, Eterm what)
     ASSERT(size <= LOCAL_HEAP_SIZE);
 #endif
 
-    msg = erts_bld_atom_uint_2tup_list(&hp,
+    msg = erts_bld_atom_uword_2tup_list(&hp,
 				       NULL,
-				       sizeof(values)/sizeof(Uint),
+				       sizeof(values)/sizeof(*values),
 				       tags,
 				       values);
 
@@ -2268,6 +2268,134 @@ trace_gc(Process *p, Eterm what)
 #undef LOCAL_HEAP_SIZE
 }
 
+void 
+monitor_long_schedule_proc(Process *p, BeamInstr *in_fp, BeamInstr *out_fp, Uint time)
+{
+    ErlHeapFragment *bp;
+    ErlOffHeap *off_heap;
+#ifndef ERTS_SMP
+    Process *monitor_p;
+#endif
+    Uint hsz;
+    Eterm *hp, list, in_mfa = am_undefined, out_mfa = am_undefined;
+    Eterm in_tpl, out_tpl, tmo_tpl, tmo, msg;
+ 
+
+#ifndef ERTS_SMP
+    ASSERT(is_internal_pid(system_monitor));
+    monitor_p = erts_proc_lookup(system_monitor);
+    if (!monitor_p || p == monitor_p) {
+	return;
+    }
+#endif
+    /* 
+     * Size: {monitor, pid, long_schedule, [{timeout, T}, {in, {M,F,A}},{out,{M,F,A}}]} ->
+     * 5 (top tuple of 4), (3 (elements) * 2 (cons)) + 3 (timeout tuple of 2) + size of Timeout +
+     * (2 * 3 (in/out tuple of 2)) + 
+     * 0 (unknown) or 4 (MFA tuple of 3) + 0 (unknown) or 4 (MFA tuple of 3)
+     * = 20 + (in_fp != NULL) ? 4 : 0 + (out_fp != NULL) ? 4 : 0 + size of Timeout
+     */
+    hsz = 20 + ((in_fp != NULL) ? 4 : 0) + ((out_fp != NULL) ? 4 : 0);
+    (void) erts_bld_uint(NULL, &hsz, time);
+    hp = ERTS_ALLOC_SYSMSG_HEAP(hsz, &bp, &off_heap, monitor_p);
+    tmo = erts_bld_uint(&hp, NULL, time);
+    if (in_fp != NULL) {
+	in_mfa = TUPLE3(hp,(Eterm) in_fp[0], (Eterm) in_fp[1], make_small(in_fp[2]));
+	hp +=4;
+    } 
+    if (out_fp != NULL) {
+	out_mfa = TUPLE3(hp,(Eterm) out_fp[0], (Eterm) out_fp[1], make_small(out_fp[2]));
+	hp +=4;
+    } 
+    tmo_tpl = TUPLE2(hp,am_timeout, tmo);
+    hp += 3;
+    in_tpl = TUPLE2(hp,am_in,in_mfa);
+    hp += 3;
+    out_tpl = TUPLE2(hp,am_out,out_mfa);
+    hp += 3;
+    list = CONS(hp,out_tpl,NIL); 
+    hp += 2;
+    list = CONS(hp,in_tpl,list);
+    hp += 2;
+    list = CONS(hp,tmo_tpl,list);
+    hp += 2;
+    msg = TUPLE4(hp, am_monitor, p->common.id, am_long_schedule, list);
+    hp += 5;
+#ifdef ERTS_SMP
+    enqueue_sys_msg(SYS_MSG_TYPE_SYSMON, p->common.id, NIL, msg, bp);
+#else
+    erts_queue_message(monitor_p, NULL, bp, msg, NIL
+#ifdef USE_VM_PROBES
+			   , NIL
+#endif
+		       );
+#endif
+}
+void 
+monitor_long_schedule_port(Port *pp, ErtsPortTaskType type, Uint time)
+{
+    ErlHeapFragment *bp;
+    ErlOffHeap *off_heap;
+#ifndef ERTS_SMP
+    Process *monitor_p;
+#endif
+    Uint hsz;
+    Eterm *hp, list, op;
+    Eterm op_tpl, tmo_tpl, tmo, msg;
+ 
+
+#ifndef ERTS_SMP
+    ASSERT(is_internal_pid(system_monitor));
+    monitor_p = erts_proc_lookup(system_monitor);
+    if (!monitor_p) {
+	return;
+    }
+#endif
+    /* 
+     * Size: {monitor, port, long_schedule, [{timeout, T}, {op, Operation}]} ->
+     * 5 (top tuple of 4), (2 (elements) * 2 (cons)) + 3 (timeout tuple of 2) 
+     * + size of Timeout + 3 (op tuple of 2 atoms)
+     * = 15 + size of Timeout
+     */
+    hsz = 15;
+    (void) erts_bld_uint(NULL, &hsz, time);
+
+    hp = ERTS_ALLOC_SYSMSG_HEAP(hsz, &bp, &off_heap, monitor_p);
+
+    switch (type) {
+    case ERTS_PORT_TASK_PROC_SIG: op = am_proc_sig; break;
+    case ERTS_PORT_TASK_TIMEOUT: op = am_timeout; break;
+    case ERTS_PORT_TASK_INPUT: op = am_input; break;
+    case ERTS_PORT_TASK_OUTPUT: op = am_output; break;
+    case ERTS_PORT_TASK_EVENT: op = am_event; break;
+    case ERTS_PORT_TASK_DIST_CMD: op = am_dist_cmd; break;
+    default: op = am_undefined; break;
+    }
+
+    tmo = erts_bld_uint(&hp, NULL, time);
+
+    op_tpl = TUPLE2(hp,am_port_op,op);
+    hp += 3;
+
+    tmo_tpl = TUPLE2(hp,am_timeout, tmo);
+    hp += 3;
+
+    list = CONS(hp,op_tpl,NIL);
+    hp += 2;
+    list = CONS(hp,tmo_tpl,list);
+    hp += 2;
+    msg = TUPLE4(hp, am_monitor, pp->common.id, am_long_schedule, list);
+    hp += 5;
+#ifdef ERTS_SMP
+    enqueue_sys_msg(SYS_MSG_TYPE_SYSMON, pp->common.id, NIL, msg, bp);
+#else
+    erts_queue_message(monitor_p, NULL, bp, msg, NIL
+#ifdef USE_VM_PROBES
+			   , NIL
+#endif
+		       );
+#endif
+}
 
 void
 monitor_gc_throttle(Process *p) {
@@ -2285,7 +2413,7 @@ monitor_gc_throttle(Process *p) {
 	    am_min_heap_size,
 	    am_message_queue_len
     };
-    Eterm values[] = {
+    UWord values[] = {
 	    p->gc_count,
 	    p->gc_time_accum,
 	    p->gc_time_base,
@@ -2301,7 +2429,7 @@ monitor_gc_throttle(Process *p) {
 #endif
 
     hsz = 0;
-    (void) erts_bld_atom_uint_2tup_list(NULL,
+    (void) erts_bld_atom_uword_2tup_list(NULL,
 					&hsz,
 					sizeof(values)/sizeof(Uint),
 					tags,
@@ -2310,7 +2438,7 @@ monitor_gc_throttle(Process *p) {
 
     hp = ERTS_ALLOC_SYSMSG_HEAP(hsz, &bp, &off_heap, monitor_p);
 
-    list = erts_bld_atom_uint_2tup_list(&hp,
+    list = erts_bld_atom_uword_2tup_list(&hp,
 					NULL,
 					sizeof(values)/sizeof(Uint),
 					tags,
@@ -2323,7 +2451,6 @@ monitor_gc_throttle(Process *p) {
     erts_queue_message(monitor_p, NULL, bp, msg, NIL);
 #endif
 }
-
 
 void
 monitor_long_gc(Process *p, Uint time) {
@@ -2343,7 +2470,7 @@ monitor_long_gc(Process *p, Uint time) {
 	am_old_heap_size,
 	am_heap_size
     };
-    Eterm values[] = {
+    UWord values[] = {
 	time,
 	OLD_HEAP(p) ? OLD_HEND(p) - OLD_HEAP(p) : 0,
 	HEAP_SIZE(p),
@@ -2364,9 +2491,9 @@ monitor_long_gc(Process *p, Uint time) {
 #endif
 
     hsz = 0;
-    (void) erts_bld_atom_uint_2tup_list(NULL,
+    (void) erts_bld_atom_uword_2tup_list(NULL,
 					&hsz,
-					sizeof(values)/sizeof(Uint),
+					sizeof(values)/sizeof(*values),
 					tags,
 					values);
     hsz += 5 /* 4-tuple */;
@@ -2377,9 +2504,9 @@ monitor_long_gc(Process *p, Uint time) {
     hp_end = hp + hsz;
 #endif
 
-    list = erts_bld_atom_uint_2tup_list(&hp,
+    list = erts_bld_atom_uword_2tup_list(&hp,
 					NULL,
-					sizeof(values)/sizeof(Uint),
+					sizeof(values)/sizeof(*values),
 					tags,
 					values);
     msg = TUPLE4(hp, am_monitor, p->common.id, am_long_gc, list); 
@@ -2417,7 +2544,7 @@ monitor_large_heap(Process *p) {
 	am_old_heap_size,
 	am_heap_size
     };
-    Uint values[] = {
+    UWord values[] = {
 	OLD_HEAP(p) ? OLD_HEND(p) - OLD_HEAP(p) : 0,
 	HEAP_SIZE(p),
 	MBUF_SIZE(p),
@@ -2439,9 +2566,9 @@ monitor_large_heap(Process *p) {
 #endif
 
     hsz = 0;
-    (void) erts_bld_atom_uint_2tup_list(NULL,
+    (void) erts_bld_atom_uword_2tup_list(NULL,
 					&hsz,
-					sizeof(values)/sizeof(Uint),
+					sizeof(values)/sizeof(*values),
 					tags,
 					values);
     hsz += 5 /* 4-tuple */;
@@ -2452,9 +2579,9 @@ monitor_large_heap(Process *p) {
     hp_end = hp + hsz;
 #endif
 
-    list = erts_bld_atom_uint_2tup_list(&hp,
+    list = erts_bld_atom_uword_2tup_list(&hp,
 					NULL,
-					sizeof(values)/sizeof(Uint),
+					sizeof(values)/sizeof(*values),
 					tags,
 					values);
     msg = TUPLE4(hp, am_monitor, p->common.id, am_large_heap, list); 
@@ -3066,6 +3193,7 @@ sys_msg_disp_failure(ErtsSysMsgQ *smqp, Eterm receiver)
     case SYS_MSG_TYPE_SYSMON:
 	if (receiver == NIL
 	    && !erts_system_monitor_long_gc
+	    && !erts_system_monitor_long_schedule
 	    && !erts_system_monitor_large_heap
 	    && !erts_system_monitor_flags.busy_port
 	    && !erts_system_monitor_flags.busy_dist_port)

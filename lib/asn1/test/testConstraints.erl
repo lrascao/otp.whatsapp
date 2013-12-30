@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2001-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -70,6 +70,8 @@ int_constraints(Rules) ->
     %%==========================================================
     LastNumWithoutLengthEncoding = 65536,
     roundtrip('Range256to65536', LastNumWithoutLengthEncoding),
+    roundtrip('Range256to65536Ext', LastNumWithoutLengthEncoding),
+    roundtrip('Range256to65536Ext', 42),
 
     FirstNumWithLengthEncoding = 65537,
     roundtrip('LargeConstraints', 'RangeMax', FirstNumWithLengthEncoding),
@@ -95,6 +97,8 @@ int_constraints(Rules) ->
     %% Random number within longlong range
     LongLong = 12672809400538808320,
     roundtrip('LongLong', LongLong),
+    roundtrip('LongLongExt', LongLong),
+    roundtrip('LongLongExt', -10000),
 
     %%==========================================================
     %%  Constraint Combinations (Duboisson p. 285)
@@ -122,35 +126,196 @@ int_constraints(Rules) ->
     range_error(Rules, 'X1', 21),
 
     %%==========================================================
+    %%  Union of single values
+    %%  Sv1 ::= INTEGER (2|3|17)
+    %%  Sv2 ::= INTEGER (2|3|17, ...)
+    %%  Sv3 ::= INTEGER {a(2),b(3),z(17)} (2|3|17, ...)
+    %%==========================================================
+
+    range_error(Rules, 'Sv1', 1),
+    range_error(Rules, 'Sv1', 18),
+    roundtrip('Sv1', 2),
+    roundtrip('Sv1', 3),
+    roundtrip('Sv1', 7),
+
+    %% Encoded as root
+    v_roundtrip(Rules, 'Sv2', 2),
+    v_roundtrip(Rules, 'Sv2', 3),
+    v_roundtrip(Rules, 'Sv2', 17),
+
+    %% Encoded as extension
+    v_roundtrip(Rules, 'Sv2', 1),
+    v_roundtrip(Rules, 'Sv2', 4),
+    v_roundtrip(Rules, 'Sv2', 18),
+
+    %% Encoded as root
+    v_roundtrip(Rules, 'Sv3', a),
+    v_roundtrip(Rules, 'Sv3', b),
+    v_roundtrip(Rules, 'Sv3', z),
+    v_roundtrip(Rules, 'Sv3', 2, a),
+    v_roundtrip(Rules, 'Sv3', 3, b),
+    v_roundtrip(Rules, 'Sv3', 17, z),
+
+    %% Encoded as extension
+    v_roundtrip(Rules, 'Sv3', 1),
+    v_roundtrip(Rules, 'Sv3', 4),
+    v_roundtrip(Rules, 'Sv3', 18),
+
+    %%==========================================================
+    %%  SemiConstrained
+    %%==========================================================
+
+    roundtrip('SemiConstrained', 100),
+    v_roundtrip(Rules, 'SemiConstrained', 100+128),
+    roundtrip('SemiConstrained', 397249742397243),
+    roundtrip('SemiConstrained', 100 + 1 bsl 128*8),
+    roundtrip('SemiConstrained', 100 + 1 bsl 256*8),
+
+    roundtrip('NegSemiConstrained', -128),
+    v_roundtrip(Rules, 'NegSemiConstrained', 0),
+    roundtrip('NegSemiConstrained', -1),
+    roundtrip('NegSemiConstrained', 500),
+
+    roundtrip('SemiConstrainedExt', -65536),
+    roundtrip('SemiConstrainedExt', 0),
+    roundtrip('SemiConstrainedExt', 42),
+    v_roundtrip(Rules, 'SemiConstrainedExt', 42+128),
+    roundtrip('SemiConstrainedExt', 100),
+    roundtrip('SemiConstrainedExt', 47777789),
+    roundtrip('SemiConstrainedExt', 42 + 1 bsl 128*8),
+    roundtrip('SemiConstrainedExt', 42 + 1 bsl 256*8),
+
+    roundtrip('NegSemiConstrainedExt', -1023),
+    roundtrip('NegSemiConstrainedExt', -128),
+    roundtrip('NegSemiConstrainedExt', -1),
+    v_roundtrip(Rules, 'NegSemiConstrainedExt', 0),
+    roundtrip('NegSemiConstrainedExt', 500),
+
+    %%==========================================================
     %%  SIZE Constraint (Duboisson p. 268)
     %%  T ::=  IA5String (SIZE (1|2, ..., SIZE (1|2|3)))
     %%  T2 ::= IA5String (SIZE (1|2, ..., 3))
     %%==========================================================
 
     roundtrip('T', "IA"),
-    roundtrip('T2', "IA").
+    roundtrip('T', "IAB"),
+    roundtrip('T', "IABC"),
+    roundtrip('T2', "IA"),
+    roundtrip('T2', "IAB"),
+    roundtrip('T2', "IABC"),
+
+    %%==========================================================
+    %%  More SIZE Constraints
+    %%==========================================================
+
+    roundtrip('FixedSize', "0123456789"),
+    roundtrip('FixedSize2', "0123456789"),
+    roundtrip('FixedSize2', "0123456789abcdefghij"),
+
+    range_error(Rules, 'FixedSize', "short"),
+    range_error(Rules, 'FixedSize2', "short"),
+
+    [roundtrip('VariableSize', lists:seq($A, $A+L-1)) ||
+	L <- lists:seq(1, 10)],
+
+    roundtrip_enc('ShorterExt', "a", shorter_ext(Rules, "a")),
+    roundtrip('ShorterExt', "abcde"),
+    roundtrip('ShorterExt', "abcdef"),
+
+    %%==========================================================
+    %%  Unions of INTEGER constraints
+    %%==========================================================
+    seq_roundtrip(Rules, 'SeqOverlapping', 'SeqNonOverlapping', 7580),
+    seq_roundtrip(Rules, 'SeqOverlapping', 'SeqNonOverlapping', 9600),
+    seq_roundtrip(Rules, 'SeqOverlapping', 'SeqNonOverlapping', 18050),
+    seq_roundtrip(Rules, 'SeqOverlapping', 'SeqNonOverlapping', 19000),
+    seq_roundtrip(Rules, 'SeqOverlapping', 'SeqNonOverlapping', 26900),
+
+    ok.
+
+%% PER: Ensure that if the lower bound is Lb, Lb+16#80 is encoded
+%% in two bytes as 16#0180. (Not in three bytes as 16#010080.)
+v(ber, 'SemiConstrained', 100+128) -> "020200E4";
+v(per, 'SemiConstrained', 100+128) -> "0180";
+v(uper, 'SemiConstrained', 100+128) -> "0180";
+v(ber, 'NegSemiConstrained', 0) -> "020100";
+v(per, 'NegSemiConstrained', 0) -> "0180";
+v(uper, 'NegSemiConstrained', 0) -> "0180";
+v(ber, 'SemiConstrainedExt', 42+128) -> "020200AA";
+v(per, 'SemiConstrainedExt', 42+128) -> "000180";
+v(uper, 'SemiConstrainedExt', 42+128) -> "00C000";
+v(ber, 'NegSemiConstrainedExt', 0) -> "020100";
+v(per, 'NegSemiConstrainedExt', 0) -> "000180";
+v(uper, 'NegSemiConstrainedExt', 0) -> "00C000";
+v(ber, 'Sv2', 1) -> "020101";
+v(per, 'Sv2', 1) -> "800101";
+v(uper, 'Sv2', 1) -> "808080";
+v(ber, 'Sv2', 2) -> "020102";
+v(per, 'Sv2', 2) -> "00";
+v(uper, 'Sv2', 2) -> "00";
+v(ber, 'Sv2', 3) -> "020103";
+v(per, 'Sv2', 3) -> "08";
+v(uper, 'Sv2', 3) -> "08";
+v(ber, 'Sv2', 4) -> "020104";
+v(per, 'Sv2', 4) -> "800104";
+v(uper, 'Sv2', 4) -> "808200";
+v(ber, 'Sv2', 17) -> "020111";
+v(per, 'Sv2', 17) -> "78";
+v(uper, 'Sv2', 17) -> "78";
+v(ber, 'Sv2', 18) -> "020112";
+v(per, 'Sv2', 18) -> "800112";
+v(uper, 'Sv2', 18) -> "808900";
+v(Rule, 'Sv3', a) -> v(Rule, 'Sv2', 2);
+v(Rule, 'Sv3', b) -> v(Rule, 'Sv2', 3);
+v(Rule, 'Sv3', z) -> v(Rule, 'Sv2', 17);
+v(Rule, 'Sv3', Val) when is_integer(Val) -> v(Rule, 'Sv2', Val).
+
+shorter_ext(per, "a") -> <<16#80,16#01,16#61>>;
+shorter_ext(uper, "a") -> <<16#80,16#E1>>;
+shorter_ext(ber, _) -> none.
 
 refed_NNL_name(_Erule) ->
-    ?line {ok,_} = asn1_wrapper:encode('Constraints','AnotherThing',fred),
-    ?line {error,_Reason} = 
-	asn1_wrapper:encode('Constraints','AnotherThing',fred3).
+    roundtrip('AnotherThing', fred),
+    {error,_Reason} = 'Constraints':encode('AnotherThing', fred3).
+
+v_roundtrip(Erule, Type, Value) ->
+    Encoded = asn1_test_lib:hex_to_bin(v(Erule, Type, Value)),
+    Encoded = roundtrip('Constraints', Type, Value).
+
+v_roundtrip(Erule, Type, Value, Expected) ->
+    Encoded = asn1_test_lib:hex_to_bin(v(Erule, Type, Value)),
+    Encoded = asn1_test_lib:roundtrip_enc('Constraints', Type, Value, Expected).
 
 roundtrip(Type, Value) ->
     roundtrip('Constraints', Type, Value).
 
 roundtrip(Module, Type, Value) ->
-    {ok,Encoded} = Module:encode(Type, Value),
-    {ok,Value} = Module:decode(Type, Encoded),
-    ok.
+    asn1_test_lib:roundtrip_enc(Module, Type, Value).
+
+roundtrip_enc(Type, Value, Enc) ->
+    Encoded = asn1_test_lib:roundtrip_enc('Constraints', Type, Value),
+    case Enc of
+	none -> ok;
+	Encoded -> ok
+    end.
 
 range_error(ber, Type, Value) ->
     %% BER: Values outside the effective range should be rejected
     %% on decode.
     {ok,Encoded} = 'Constraints':encode(Type, Value),
-    {error,{asn1,{integer_range,_,_}}} = 'Constraints':decode(Type, Encoded),
+    {error,{asn1,_}} = 'Constraints':decode(Type, Encoded),
     ok;
 range_error(Per, Type, Value) when Per =:= per; Per =:= uper ->
     %% (U)PER: Values outside the effective range should be rejected
     %% on encode.
     {error,_} = 'Constraints':encode(Type, Value),
     ok.
+
+seq_roundtrip(Rules, Seq1, Seq2, Val) ->
+    Enc = roundtrip(Seq1, {Seq1,Val}),
+    case Rules of
+	ber ->
+	    roundtrip(Seq2, {Seq2,Val});
+	_ ->
+	    roundtrip_enc(Seq2, {Seq2,Val}, Enc)
+    end.

@@ -133,7 +133,7 @@ typedef struct {
 
 #define ERL_DRV_EXTENDED_MARKER		(0xfeeeeeed)
 #define ERL_DRV_EXTENDED_MAJOR_VERSION	2
-#define ERL_DRV_EXTENDED_MINOR_VERSION	1
+#define ERL_DRV_EXTENDED_MINOR_VERSION	2
 
 /*
  * The emulator will refuse to load a driver with different major
@@ -546,6 +546,11 @@ EXTERN int erl_drv_equal_tids(ErlDrvTid tid1, ErlDrvTid tid2);
 EXTERN void erl_drv_thread_exit(void *resp);
 EXTERN int erl_drv_thread_join(ErlDrvTid, void **respp);
 
+EXTERN char* erl_drv_mutex_name(ErlDrvMutex *mtx);
+EXTERN char* erl_drv_cond_name(ErlDrvCond *cnd);
+EXTERN char* erl_drv_rwlock_name(ErlDrvRWLock *rwlck);
+EXTERN char* erl_drv_thread_name(ErlDrvTid tid);
+
 /*
  * Misc.
  */
@@ -638,6 +643,8 @@ EXTERN int erl_drv_send_term(ErlDrvTermData port,
 			     int len);
 
 /* Async IO functions */
+EXTERN unsigned int driver_async_port_key(ErlDrvPort port);
+
 EXTERN long driver_async(ErlDrvPort ix,
 			 unsigned int* key,
 			 void (*async_invoke)(void*), 
@@ -681,6 +688,3 @@ EXTERN int erl_drv_getenv(char *key, char *value, size_t *value_size);
 
 /* also in global.h, but driver's can't include global.h */
 void dtrace_drvport_str(ErlDrvPort port, char *port_buf);
-
-
-

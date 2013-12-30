@@ -34,8 +34,8 @@
 #define ERTS_WANT_EXTERNAL_TAGS
 #include "external.h"
 
-#define WORD_FMT "%X"
-#define ADDR_FMT "%X"
+#define PTR_FMT "%bpX"
+#define ETERM_FMT "%beX"
 
 #define OUR_NIL	_make_header(0,_TAG_HEADER_FLOAT)
 
@@ -74,6 +74,43 @@ erts_deep_process_dump(int to, void *to_arg)
     }
 
     dump_binaries(to, to_arg, all_binaries);
+}
+
+Uint erts_process_memory(Process *p) {
+  ErlMessage *mp;
+  Uint size = 0;
+  struct saved_calls *scb;
+  size += sizeof(Process);
+
+  ERTS_SMP_MSGQ_MV_INQ2PRIVQ(p);
+
+  erts_doforall_links(ERTS_P_LINKS(p), &erts_one_link_size, &size);
+  erts_doforall_monitors(ERTS_P_MONITORS(p), &erts_one_mon_size, &size);
+  size += (p->heap_sz + p->mbuf_sz) * sizeof(Eterm);
+  if (p->old_hend && p->old_heap)
+    size += (p->old_hend - p->old_heap) * sizeof(Eterm);
+
+  size += p->msg.len * sizeof(ErlMessage);
+
+  for (mp = p->msg.first; mp; mp = mp->next)
+    if (mp->data.attached)
+      size += erts_msg_attached_data_size(mp)*sizeof(Eterm);
+
+  if (p->arg_reg != p->def_arg_reg) {
+    size += p->arity * sizeof(p->arg_reg[0]);
+  }
+
+  if (p->psd)
+    size += sizeof(ErtsPSD);
+
+  scb = ERTS_PROC_GET_SAVED_CALLS_BUF(p);
+  if (scb) {
+    size += (sizeof(struct saved_calls)
+	     + (scb->len-1) * sizeof(scb->ct[0]));
+  }
+
+  size += erts_dicts_mem_size(p);
+  return size;
 }
 
 static void
@@ -173,9 +210,9 @@ static void
 dump_element(int to, void *to_arg, Eterm x)
 {
     if (is_list(x)) {
-	erts_print(to, to_arg, "H" WORD_FMT, list_val(x));
+	erts_print(to, to_arg, "H" PTR_FMT, list_val(x));
     } else if (is_boxed(x)) {
-	erts_print(to, to_arg, "H" WORD_FMT, boxed_val(x));
+	erts_print(to, to_arg, "H" PTR_FMT, boxed_val(x));
     } else if (is_immed(x)) {
 	if (is_atom(x)) {
 	    unsigned char* s = atom_tab(atom_val(x))->name;
@@ -274,7 +311,7 @@ heap_dump(int to, void *to_arg, Eterm x)
 	} else if (is_list(x)) {
 	    ptr = list_val(x);
 	    if (ptr[0] != OUR_NIL) {
-		erts_print(to, to_arg, ADDR_FMT ":l", ptr);
+		erts_print(to, to_arg, PTR_FMT ":l", ptr);
 		dump_element(to, to_arg, ptr[0]);
 		erts_putc(to, to_arg, '|');
 		dump_element(to, to_arg, ptr[1]);
@@ -293,12 +330,12 @@ heap_dump(int to, void *to_arg, Eterm x)
 	    ptr = boxed_val(x);
 	    hdr = *ptr;
 	    if (hdr != OUR_NIL) {	/* If not visited */
-		erts_print(to, to_arg, ADDR_FMT ":", ptr);
+		erts_print(to, to_arg, PTR_FMT ":", ptr);
 	        if (is_arity_value(hdr)) {
 		    Uint i;
 		    Uint arity = arityval(hdr);
 
-		    erts_print(to, to_arg, "t" WORD_FMT ":", arity);
+		    erts_print(to, to_arg, "t" ETERM_FMT ":", arity);
 		    for (i = 1; i <= arity; i++) {
 			dump_element(to, to_arg, ptr[i]);
 			if (is_immed(ptr[i])) {
@@ -351,21 +388,43 @@ heap_dump(int to, void *to_arg, Eterm x)
 			    val->flags = (UWord) all_binaries;
 			    all_binaries = val;
 			}
-			erts_print(to, to_arg, "Yc%X:%X:%X", val,
+			erts_print(to, to_arg,
+				   "Yc" PTR_FMT ":" PTR_FMT ":" PTR_FMT,
+				   val,
 				   pb->bytes - (byte *)val->orig_bytes,
 				   size);
 		    } else if (tag == SUB_BINARY_SUBTAG) {
 			ErlSubBin* Sb = (ErlSubBin *) binary_val(x);
-			Eterm* real_bin = binary_val(Sb->orig);
+			Eterm* real_bin;
 			void* val;
 
+			/*
+			 * Must use boxed_val() here, because the original
+			 * binary may have been visited and have had its
+			 * header word changed to OUR_NIL (in which case
+			 * binary_val() will cause an assertion failure in
+			 * the DEBUG emulator).
+			 */
+
+			real_bin = boxed_val(Sb->orig);
+
 			if (thing_subtag(*real_bin) == REFC_BINARY_SUBTAG) {
+			    /*
+			     * Unvisited REFC_BINARY: Point directly to
+			     * the binary.
+			     */
 			    ProcBin* pb = (ProcBin *) real_bin;
 			    val = pb->val;
-			} else {	/* Heap binary */
+			} else {
+			    /*
+			     * Heap binary or visited REFC binary: Point
+			     * to heap binary or ProcBin on the heap.
+			     */
 			    val = real_bin;
 			}
-			erts_print(to, to_arg, "Ys%X:%X:%X", val, Sb->offs, size);
+			erts_print(to, to_arg,
+				   "Ys" PTR_FMT ":" PTR_FMT ":" PTR_FMT,
+				   val, Sb->offs, size);
 		    }
 		    erts_putc(to, to_arg, '\n');
 		    *ptr = OUR_NIL;
@@ -401,7 +460,7 @@ dump_binaries(int to, void *to_arg, Binary* current)
 	long size = current->orig_size;
 	byte* bytes = (byte*) current->orig_bytes;
 
-	erts_print(to, to_arg, "=binary:%X\n", current);
+	erts_print(to, to_arg, "=binary:" PTR_FMT "\n", current);
 	erts_print(to, to_arg, "%X:", size);
 	for (i = 0; i < size; i++) {
 	    erts_print(to, to_arg, "%02X", bytes[i]);

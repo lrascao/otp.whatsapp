@@ -45,6 +45,7 @@
 
 -export_type([evaluable/0,
               restriction/0,
+              remotes/0,
               sequence/0,
               app_alias/0,
               service_name/0,
@@ -292,13 +293,21 @@ call(SvcName, App, Message) ->
     | [node()]
     | evaluable().
 
+-type remotes()
+   :: boolean()
+    | [node()]
+    | evaluable().
+
 %% Options passed to start_service/2
 
 -type service_opt()
    :: capability()
     | {application, [application_opt()]}
     | {restrict_connections, restriction()}
-    | {sequence, sequence() | evaluable()}.
+    | {sequence, sequence() | evaluable()}
+    | {share_peers, remotes()}
+    | {use_shared_peers, remotes()}
+    | {spawn_opt, list()}.
 
 -type application_opt()
    :: {alias, app_alias()}
@@ -327,15 +336,17 @@ call(SvcName, App, Message) ->
 -type transport_opt()
    :: {transport_module, atom()}
     | {transport_config, any()}
-    | {transport_config, any(), non_neg_integer() | infinity}
+    | {transport_config, any(), 'Unsigned32'() | infinity}
     | {applications, [app_alias()]}
     | {capabilities, [capability()]}
     | {capabilities_cb, evaluable()}
     | {capx_timeout, 'Unsigned32'()}
     | {disconnect_cb, evaluable()}
     | {length_errors, exit | handle | discard}
-    | {reconnect_timer, 'Unsigned32'()}
+    | {connect_timer, 'Unsigned32'()}
     | {watchdog_timer, 'Unsigned32'() | {module(), atom(), list()}}
+    | {watchdog_config, [{okay|suspect, non_neg_integer()}]}
+    | {spawn_opt, list()}
     | {private, any()}.
 
 %% Predicate passed to remove_transport/2

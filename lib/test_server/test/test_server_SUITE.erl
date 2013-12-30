@@ -1,3 +1,4 @@
+%% -*- coding: utf-8 -*-
 %%
 %% %CopyrightBegin%
 %%
@@ -104,7 +105,7 @@ test_server_SUITE(Config) ->
 %    rpc:call(Node,dbg, tpl,[test_server_ctrl,x]),
     run_test_server_tests("test_server_SUITE",
 			  [{test_server_SUITE,skip_case7,"SKIPPED!"}],
-			  38, 1, 30, 19, 9, 1, 11, 2, 25, Config).
+			  40, 1, 32, 21, 9, 1, 11, 2, 27, Config).
 
 test_server_parallel01_SUITE(Config) ->
     run_test_server_tests("test_server_parallel01_SUITE", [],
@@ -116,7 +117,7 @@ test_server_shuffle01_SUITE(Config) ->
 
 test_server_skip_SUITE(Config) ->
     run_test_server_tests("test_server_skip_SUITE", [],
-			  3, 0, 1, 0, 0, 1, 3, 0, 0, Config).
+			  3, 0, 1, 0, 1, 0, 3, 0, 0, Config).
 
 test_server_conf01_SUITE(Config) ->
     run_test_server_tests("test_server_conf01_SUITE", [],
@@ -187,7 +188,7 @@ test_server_unicode(Config) ->
     %% Create and run two test suites - one with filename and content
     %% in latin1 (if the default filename mode is latin1) and one with
     %% filename and content in utf8.  Both have name and content
-    %% including letters äöå.  Check that all logs are generated with
+    %% including letters Ã¤Ã¶Ã¥.  Check that all logs are generated with
     %% utf8 encoded filenames.
     case file:native_name_encoding() of
 	utf8 ->
@@ -247,11 +248,13 @@ run_test_server_tests(SuiteName, Skip, NCases, NFail, NExpected, NSucc,
     {NActualSkip,NActualFail,NActualSucc} = 
 	lists:foldl(fun(#tc{ result = skip },{S,F,Su}) ->
 			     {S+1,F,Su};
-			 (#tc{ result = ok },{S,F,Su}) ->
-			     {S,F,Su+1};
-			(#tc{ result = failed },{S,F,Su}) ->
-			     {S,F+1,Su}
-			  end,{0,0,0},Data#suite.cases),
+		       (#tc{ result = auto_skip },{S,F,Su}) ->
+			    {S+1,F,Su};
+		       (#tc{ result = ok },{S,F,Su}) ->
+			    {S,F,Su+1};
+		       (#tc{ result = failed },{S,F,Su}) ->
+			    {S,F+1,Su}
+		    end,{0,0,0},Data#suite.cases),
     Data.
 
 translate_filename(Filename,EncodingOnTestNode) ->
@@ -323,11 +326,7 @@ generate_and_run_unicode_test(Config0,Encoding) ->
     Config1 = lists:keydelete(node,1,Config0),
     Config2 = lists:keydelete(work_dir,1,Config1),
     NodeName = list_to_atom("test_server_tester_" ++ atom_to_list(Encoding)),
-    ErtsSwitch = case Encoding of
-		     latin1 -> "+fnl";
-		     utf8 -> "+fnu"
-		 end,
-    Config = start_node(Config2,NodeName,ErtsSwitch),
+    Config = start_node(Config2,NodeName,erts_switch(Encoding)),
 
     %% Compile the suite
     Node = proplists:get_value(node,Config),
@@ -352,7 +351,7 @@ generate_and_run_unicode_test(Config0,Encoding) ->
     SuiteHtml = translate_filename(LowerModStr++".src.html",Encoding),
     true = filelib:is_regular(filename:join(RunDir,SuiteHtml)),
 
-    TCLog = translate_filename(LowerModStr++".tc_äöå.html",Encoding),
+    TCLog = translate_filename(LowerModStr++".tc_Ã¤Ã¶Ã¥.html",Encoding),
     true = filelib:is_regular(filename:join(RunDir,TCLog)),
     ok.
 
@@ -374,7 +373,7 @@ start_node(Config,Name,Args) ->
     end.
 
 create_unicode_test_suite(Dir,Encoding) ->
-    ModStr = "test_server_"++atom_to_list(Encoding)++"_äöå_SUITE",
+    ModStr = "test_server_"++atom_to_list(Encoding)++"_Ã¤Ã¶Ã¥_SUITE",
     File = filename:join(Dir,ModStr++".erl"),
     Suite =
 	["%% -*- ",epp:encoding_to_string(Encoding)," -*-\n",
@@ -382,12 +381,12 @@ create_unicode_test_suite(Dir,Encoding) ->
 	 "\n"
 	 "-export([all/1, init_per_suite/1, end_per_suite/1]).\n"
 	 "-export([init_per_testcase/2, end_per_testcase/2]).\n"
-	 "-export([tc_äöå/1]).\n"
+	 "-export([tc_Ã¤Ã¶Ã¥/1]).\n"
 	 "\n"
 	 "-include_lib(\"test_server/include/test_server.hrl\").\n"
 	 "\n"
 	 "all(suite) ->\n"
-	 "    [tc_äöå].\n"
+	 "    [tc_Ã¤Ã¶Ã¥].\n"
 	 "\n"
 	 "init_per_suite(Config) ->\n"
 	 "    Config.\n"
@@ -410,7 +409,7 @@ create_unicode_test_suite(Dir,Encoding) ->
 	 "    ?t:timetrap_cancel(Dog),\n"
 	 "    ok.\n"
 	 "\n"
-	 "tc_äöå(Config) when is_list(Config) ->\n"
+	 "tc_Ã¤Ã¶Ã¥(Config) when is_list(Config) ->\n"
 	 "    true = filelib:is_dir(?config(priv_dir,Config)),\n"
 	 "    ok.\n"],
     {ok,Fd} = file:open(raw_filename(File,Encoding),[write,{encoding,Encoding}]),

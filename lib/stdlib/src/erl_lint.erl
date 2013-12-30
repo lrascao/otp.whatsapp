@@ -522,8 +522,7 @@ start(File, Opts) ->
           warn_format = value_option(warn_format, 1, warn_format, 1,
 				     nowarn_format, 0, Opts),
 	  enabled_warnings = Enabled,
-          file = File,
-	  types = default_types()
+          file = File
          }.
 
 %% is_warn_enabled(Category, St) -> boolean().
@@ -1007,7 +1006,10 @@ check_undefined_functions(#lint{called=Called0,defined=Def0}=St0) ->
 check_undefined_types(#lint{usage=Usage,types=Def}=St0) ->
     Used = Usage#usage.used_types,
     UTAs = dict:fetch_keys(Used),
-    Undef = [{TA,dict:fetch(TA, Used)} || TA <- UTAs, not dict:is_key(TA, Def)],
+    Undef = [{TA,dict:fetch(TA, Used)} ||
+		TA <- UTAs,
+		not dict:is_key(TA, Def),
+		not is_default_type(TA)],
     foldl(fun ({TA,L}, St) ->
 		  add_error(L, {undefined_type,TA}, St)
 	  end, St0, Undef).
@@ -1951,12 +1953,10 @@ expr({string,_Line,_S}, _Vt, St) -> {[],St};
 expr({nil,_Line}, _Vt, St) -> {[],St};
 expr({cons,_Line,H,T}, Vt, St) ->
     expr_list([H,T], Vt, St);
-expr({lc,_Line,E,Qs}, Vt0, St0) ->
-    {Vt,St} = handle_comprehension(E, Qs, Vt0, St0),
-    {vtold(Vt, Vt0),St};                      %Don't export local variables
-expr({bc,_Line,E,Qs}, Vt0, St0) ->
-    {Vt,St} = handle_comprehension(E, Qs, Vt0, St0),
-    {vtold(Vt,Vt0),St};			 %Don't export local variables
+expr({lc,_Line,E,Qs}, Vt, St) ->
+    handle_comprehension(E, Qs, Vt, St);
+expr({bc,_Line,E,Qs}, Vt, St) ->
+    handle_comprehension(E, Qs, Vt, St);
 expr({tuple,_Line,Es}, Vt, St) ->
     expr_list(Es, Vt, St);
 expr({record_index,Line,Name,Field}, _Vt, St) ->
@@ -2010,8 +2010,7 @@ expr({'fun',Line,Body}, Vt, St) ->
     %%No one can think funs export!
     case Body of
         {clauses,Cs} ->
-            {Bvt, St1} = fun_clauses(Cs, Vt, St),
-            {vtupdate(Bvt, Vt), St1};
+            fun_clauses(Cs, Vt, St);
         {function,F,A} ->
 	    %% BifClash - Fun expression
             %% N.B. Only allows BIFs here as well, NO IMPORTS!!
@@ -2109,12 +2108,12 @@ expr({'try',Line,Es,Scs,Ccs,As}, Vt, St0) ->
     {Evt0,St1} = exprs(Es, Vt, St0),
     TryLine = {'try',Line},
     Uvt = vtunsafe(vtnames(vtnew(Evt0, Vt)), TryLine, []),
-    Evt1 = vtupdate(Uvt, vtupdate(Evt0, Vt)),
-    {Sccs,St2} = icrt_clauses(Scs++Ccs, TryLine, Evt1, St1),
+    Evt1 = vtupdate(Uvt, vtsubtract(Evt0, Uvt)),
+    {Sccs,St2} = icrt_clauses(Scs++Ccs, TryLine, vtupdate(Evt1, Vt), St1),
     Rvt0 = Sccs,
     Rvt1 = vtupdate(vtunsafe(vtnames(vtnew(Rvt0, Vt)), TryLine, []), Rvt0),
     Evt2 = vtmerge(Evt1, Rvt1),
-    {Avt0,St} = exprs(As, Evt2, St2),
+    {Avt0,St} = exprs(As, vtupdate(Evt2, Vt), St2),
     Avt1 = vtupdate(vtunsafe(vtnames(vtnew(Avt0, Vt)), TryLine, []), Avt0),
     Avt = vtmerge(Evt2, Avt1),
     {Avt,St};
@@ -2148,10 +2147,11 @@ expr({remote,Line,_M,_F}, _Vt, St) ->
 %%      {UsedVarTable,State}
 
 expr_list(Es, Vt, St) ->
-    foldl(fun (E, {Esvt,St0}) ->
-                  {Evt,St1} = expr(E, Vt, St0),
-                  {vtmerge(Evt, Esvt),St1}
-          end, {[],St}, Es).
+    {Vt1,St1} = foldl(fun (E, {Esvt,St0}) ->
+                              {Evt,St1} = expr(E, Vt, St0),
+                              {vtmerge_pat(Evt, Esvt),St1}
+                      end, {[],St}, Es),
+    {vtmerge(vtnew(Vt1, Vt), vtold(Vt1, Vt)),St1}.
 
 record_expr(Line, Rec, Vt, St0) ->
     St1 = warn_invalid_record(Line, Rec, St0),
@@ -2308,7 +2308,7 @@ check_fields(Fs, Name, Fields, Vt, St0, CheckFun) ->
 check_field({record_field,Lf,{atom,La,F},Val}, Name, Fields,
             Vt, St, Sfs, CheckFun) ->
     case member(F, Sfs) of
-        true -> {Sfs,{Vt,add_error(Lf, {redefine_field,Name,F}, St)}};
+        true -> {Sfs,{[],add_error(Lf, {redefine_field,Name,F}, St)}};
         false ->
             {[F|Sfs],
              case find_field(F, Fields) of
@@ -2440,7 +2440,7 @@ type_def(Attr, Line, TypeName, ProtoType, Args, St0) ->
         end,
     case (dict:is_key(TypePair, TypeDefs) orelse is_var_arity_type(TypeName)) of
 	true ->
-	    case dict:is_key(TypePair, default_types()) of
+	    case is_default_type(TypePair) of
 		true  ->
 		    case is_newly_introduced_builtin_type(TypePair) of
 			%% allow some types just for bootstrapping
@@ -2488,8 +2488,8 @@ check_type({paren_type, _L, [Type]}, SeenVars, St) ->
 check_type({remote_type, L, [{atom, _, Mod}, {atom, _, Name}, Args]},
 	   SeenVars, #lint{module=CurrentMod} = St) ->
     St1 =
-	case (dict:is_key({Name, length(Args)}, default_types())
-	      orelse is_var_arity_type(Name)) of
+	case is_default_type({Name, length(Args)})
+	      orelse is_var_arity_type(Name) of
 	    true -> add_error(L, {imported_predefined_type, Name}, St);
 	    false -> St
 	end,
@@ -2606,63 +2606,62 @@ is_var_arity_type(union) -> true;
 is_var_arity_type(record) -> true;
 is_var_arity_type(_) -> false.
 
-default_types() ->
-    DefTypes = [{any, 0},
-		{arity, 0},
-		{array, 0},
-		{atom, 0},
-		{atom, 1},
-		{binary, 0},
-		{binary, 2},
-		{bitstring, 0},
-		{bool, 0},
-		{boolean, 0},
-		{byte, 0},
-		{char, 0},
-		{dict, 0},
-		{digraph, 0},
-		{float, 0},
-		{'fun', 0},
-		{'fun', 2},
-		{function, 0},
-		{gb_set, 0},
-		{gb_tree, 0},
-		{identifier, 0},
-		{integer, 0},
-		{integer, 1},
-		{iodata, 0},
-		{iolist, 0},
-		{list, 0},
-		{list, 1},
-		{maybe_improper_list, 0},
-		{maybe_improper_list, 2},
-		{mfa, 0},
-		{module, 0},
-		{neg_integer, 0},
-		{nil, 0},
-		{no_return, 0},
-		{node, 0},
-		{non_neg_integer, 0},
-		{none, 0},
-		{nonempty_list, 0},
-		{nonempty_list, 1},
-		{nonempty_improper_list, 2},
-		{nonempty_maybe_improper_list, 0},
-		{nonempty_maybe_improper_list, 2},
-		{nonempty_string, 0},
-		{number, 0},
-		{pid, 0},
-		{port, 0},
-		{pos_integer, 0},
-		{queue, 0},
-		{range, 2},
-		{reference, 0},
-		{set, 0},
-		{string, 0},
-		{term, 0},
-		{timeout, 0},
-		{var, 1}],
-    dict:from_list([{T, -1} || T <- DefTypes]).
+is_default_type({any, 0}) -> true;
+is_default_type({arity, 0}) -> true;
+is_default_type({array, 0}) -> true;
+is_default_type({atom, 0}) -> true;
+is_default_type({atom, 1}) -> true;
+is_default_type({binary, 0}) -> true;
+is_default_type({binary, 2}) -> true;
+is_default_type({bitstring, 0}) -> true;
+is_default_type({bool, 0}) -> true;
+is_default_type({boolean, 0}) -> true;
+is_default_type({byte, 0}) -> true;
+is_default_type({char, 0}) -> true;
+is_default_type({dict, 0}) -> true;
+is_default_type({digraph, 0}) -> true;
+is_default_type({float, 0}) -> true;
+is_default_type({'fun', 0}) -> true;
+is_default_type({'fun', 2}) -> true;
+is_default_type({function, 0}) -> true;
+is_default_type({gb_set, 0}) -> true;
+is_default_type({gb_tree, 0}) -> true;
+is_default_type({identifier, 0}) -> true;
+is_default_type({integer, 0}) -> true;
+is_default_type({integer, 1}) -> true;
+is_default_type({iodata, 0}) -> true;
+is_default_type({iolist, 0}) -> true;
+is_default_type({list, 0}) -> true;
+is_default_type({list, 1}) -> true;
+is_default_type({maybe_improper_list, 0}) -> true;
+is_default_type({maybe_improper_list, 2}) -> true;
+is_default_type({mfa, 0}) -> true;
+is_default_type({module, 0}) -> true;
+is_default_type({neg_integer, 0}) -> true;
+is_default_type({nil, 0}) -> true;
+is_default_type({no_return, 0}) -> true;
+is_default_type({node, 0}) -> true;
+is_default_type({non_neg_integer, 0}) -> true;
+is_default_type({none, 0}) -> true;
+is_default_type({nonempty_list, 0}) -> true;
+is_default_type({nonempty_list, 1}) -> true;
+is_default_type({nonempty_improper_list, 2}) -> true;
+is_default_type({nonempty_maybe_improper_list, 0}) -> true;
+is_default_type({nonempty_maybe_improper_list, 2}) -> true;
+is_default_type({nonempty_string, 0}) -> true;
+is_default_type({number, 0}) -> true;
+is_default_type({pid, 0}) -> true;
+is_default_type({port, 0}) -> true;
+is_default_type({pos_integer, 0}) -> true;
+is_default_type({queue, 0}) -> true;
+is_default_type({range, 2}) -> true;
+is_default_type({reference, 0}) -> true;
+is_default_type({set, 0}) -> true;
+is_default_type({string, 0}) -> true;
+is_default_type({term, 0}) -> true;
+is_default_type({timeout, 0}) -> true;
+is_default_type({var, 1}) -> true;
+is_default_type(_) -> false.
 
 %% R13
 is_newly_introduced_builtin_type({arity, 0}) -> true;
@@ -2776,10 +2775,7 @@ check_unused_types(Forms, #lint{usage=Usage, types=Ts, exp_types=ExpTs}=St) ->
 	    L = gb_sets:to_list(ExpTs) ++ dict:fetch_keys(D),
 	    UsedTypes = gb_sets:from_list(L),
 	    FoldFun =
-		fun(_Type, -1, AccSt) ->
-			%% Default type
-			AccSt;
-		   (Type, #typeinfo{line = FileLine}, AccSt) ->
+		fun(Type, #typeinfo{line = FileLine}, AccSt) ->
                         case loc(FileLine) of
 			    {FirstFile, _} ->
 				case gb_sets:is_member(Type, UsedTypes) of
@@ -2801,10 +2797,7 @@ check_unused_types(Forms, #lint{usage=Usage, types=Ts, exp_types=ExpTs}=St) ->
 check_local_opaque_types(St) ->
     #lint{types=Ts, exp_types=ExpTs} = St,
     FoldFun =
-        fun(_Type, -1, AccSt) ->
-                %% Default type
-                AccSt;
-           (_Type, #typeinfo{attr = type}, AccSt) ->
+        fun(_Type, #typeinfo{attr = type}, AccSt) ->
                 AccSt;
            (Type, #typeinfo{attr = opaque, line = FileLine}, AccSt) ->
                 case gb_sets:is_element(Type, ExpTs) of
@@ -2848,7 +2841,9 @@ icrt_export(Csvt, Vt, In, St) ->
     Uvt = vtmerge(Evt, Unused),
     %% Make exported and unsafe unused variables unused in subsequent code:
     Vt2 = vtmerge(Uvt, vtsubtract(Vt1, Uvt)),
-    {Vt2,St}.
+    %% Forget about old variables which were not used:
+    Vt3 = vtmerge(vtnew(Vt2, Vt), vt_no_unused(vtold(Vt2, Vt))),
+    {Vt3,St}.
 
 handle_comprehension(E, Qs, Vt0, St0) ->
     {Vt1, Uvt, St1} = lc_quals(Qs, Vt0, St0),
@@ -2861,7 +2856,11 @@ handle_comprehension(E, Qs, Vt0, St0) ->
     %% Local variables that have not been shadowed.
     {_,St} = check_unused_vars(Vt2, Vt0, St4),
     Vt3 = vtmerge(vtsubtract(Vt2, Uvt), Uvt),
-    {Vt3,St}.
+    %% Don't export local variables.
+    Vt4 = vtold(Vt3, Vt0),
+    %% Forget about old variables which were not used.
+    Vt5 = vt_no_unused(Vt4),
+    {Vt5,St}.
 
 %% lc_quals(Qualifiers, ImportVarTable, State) ->
 %%      {VarTable,ShadowedVarTable,State}
@@ -2925,7 +2924,7 @@ fun_clauses(Cs, Vt, St) ->
                               {Cvt,St1} = fun_clause(C, Vt, St0),
                               {vtmerge(Cvt, Bvt0),St1}
                       end, {[],St#lint{recdef_top = false}}, Cs),
-    {Bvt,St2#lint{recdef_top = OldRecDef}}.
+    {vt_no_unused(vtold(Bvt, Vt)),St2#lint{recdef_top = OldRecDef}}.
 
 fun_clause({clause,_Line,H,G,B}, Vt0, St0) ->
     {Hvt,Binvt,St1} = head(H, Vt0, [], St0), % No imported pattern variables
@@ -3186,6 +3185,8 @@ vt_no_unsafe(Vt) -> [V || {_,{S,_U,_L}}=V <- Vt,
                               _ -> true
                           end].
 
+vt_no_unused(Vt) -> [V || {_,{_,U,_L}}=V <- Vt, U =/= unused].
+
 %% vunion(VarTable1, VarTable2) -> [VarName].
 %% vunion([VarTable]) -> [VarName].
 %% vintersection(VarTable1, VarTable2) -> [VarName].
@@ -3224,7 +3225,8 @@ modify_line(T, F0) ->
 
 %% Forms.
 modify_line1({function,F,A}, _Mf) -> {function,F,A};
-modify_line1({function,M,F,A}, _Mf) -> {function,M,F,A};
+modify_line1({function,M,F,A}, Mf) ->
+    {function,modify_line1(M, Mf),modify_line1(F, Mf),modify_line1(A, Mf)};
 modify_line1({attribute,L,record,{Name,Fields}}, Mf) ->
     {attribute,Mf(L),record,{Name,modify_line1(Fields, Mf)}};
 modify_line1({attribute,L,spec,{Fun,Types}}, Mf) ->

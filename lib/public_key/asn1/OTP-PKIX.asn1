@@ -97,25 +97,25 @@ IMPORTS
        id-pkix1-implicit(19) }
 
 	--Keys and Signatures
-	id-dsa, Dss-Parms, DSAPublicKey, 
-	id-dsa-with-sha1,
-	md2WithRSAEncryption,
+	id-dsa, Dss-Parms, DSAPublicKey,
+	id-dsa-with-sha1, id-dsaWithSHA1,
+        md2WithRSAEncryption,
 	md5WithRSAEncryption,
 	sha1WithRSAEncryption,
 	rsaEncryption, RSAPublicKey,
-	dhpublicnumber, DomainParameters, DHPublicKey,
+	dhpublicnumber, DomainParameters, DHPublicKey, 
 	id-keyExchangeAlgorithm, KEA-Parms-Id, --KEA-PublicKey,
-	ecdsa-with-SHA1, 
+	ecdsa-with-SHA1, ecdsa-with-SHA224,
+	ecdsa-with-SHA256, ecdsa-with-SHA384, ecdsa-with-SHA512,
 	prime-field, Prime-p, 
 	characteristic-two-field, --Characteristic-two, 
 	gnBasis, 
 	tpBasis, Trinomial,
 	ppBasis, Pentanomial,
-	id-ecPublicKey, EcpkParameters, ECPoint
+	id-ecPublicKey, EcpkParameters, ECParameters, ECPoint
 	FROM PKIX1Algorithms88 { iso(1) identified-organization(3) dod(6)
 	     internet(1) security(5) mechanisms(5) pkix(7) id-mod(0)
 	     id-mod-pkix1-algorithms(17) }
-	     
        md2WithRSAEncryption,
        md5WithRSAEncryption,
        sha1WithRSAEncryption,
@@ -252,7 +252,17 @@ domainComponent ATTRIBUTE-TYPE-AND-VALUE-CLASS ::= {
 
 emailAddress ATTRIBUTE-TYPE-AND-VALUE-CLASS ::= {
 	ID id-emailAddress
-	TYPE EmailAddress }
+	TYPE EmailAddress } -- this is currently not used when decoding
+ -- The decoding and mapping between ID and Type is done in the code
+ -- in module publickey_cert_records via the function attribute_type
+ -- To be more forgiving and compatible with other SSL implementations
+ -- regarding how to handle and sometimes accept incorrect certificates
+ -- we define and use the type below instead of emailAddress
+
+ OTP-emailAddress ::= CHOICE {
+       ia5String         IA5String       (SIZE (1..255)),
+       utf8String        UTF8String      (SIZE (1..255))
+}
 
 --
 -- Signature and Public Key Algorithms
@@ -316,16 +326,20 @@ PublicKeyAlgorithm ::=  SEQUENCE  {
 		   OPTIONAL } 
 
 SupportedSignatureAlgorithms SIGNATURE-ALGORITHM-CLASS ::= { 
-		    dsa-with-sha1 | md2-with-rsa-encryption |
-		    md5-with-rsa-encryption | sha1-with-rsa-encryption |
+		    dsa-with-sha1 | dsaWithSHA1 |  md2-with-rsa-encryption |
+		    md5-with-rsa-encryption | sha1-with-rsa-encryption | sha-1with-rsa-encryption |
 		    sha224-with-rsa-encryption |
 		    sha256-with-rsa-encryption |
 		    sha384-with-rsa-encryption |
 		    sha512-with-rsa-encryption |
-		    ecdsa-with-sha1 } 
+		    ecdsa-with-sha1 |
+		    ecdsa-with-sha224 |
+		    ecdsa-with-sha256 |
+		    ecdsa-with-sha384 |
+		    ecdsa-with-sha512 }
 
 SupportedPublicKeyAlgorithms PUBLIC-KEY-ALGORITHM-CLASS ::= { 
-		    dsa | rsa-encryption | dh | kea | ec-public-key }
+		    dsa | rsa-encryption | dh  | kea  | ec-public-key }
 
    --   DSA Keys and Signatures
 
@@ -349,6 +363,11 @@ SupportedPublicKeyAlgorithms PUBLIC-KEY-ALGORITHM-CLASS ::= {
 		 ID id-dsa-with-sha1
 		 TYPE  DSAParams }
 
+
+   dsaWithSHA1	 SIGNATURE-ALGORITHM-CLASS ::= {
+		 ID id-dsaWithSHA1
+		 TYPE  DSAParams }
+
 				  --
    --   RSA Keys and Signatures
    --
@@ -365,6 +384,10 @@ SupportedPublicKeyAlgorithms PUBLIC-KEY-ALGORITHM-CLASS ::= {
 
    sha1-with-rsa-encryption SIGNATURE-ALGORITHM-CLASS ::= {
 			    ID sha1WithRSAEncryption 
+			    TYPE NULL }
+
+   sha-1with-rsa-encryption SIGNATURE-ALGORITHM-CLASS ::= {
+			    ID sha-1WithRSAEncryption
 			    TYPE NULL }
 
    sha224-with-rsa-encryption SIGNATURE-ALGORITHM-CLASS ::= {
@@ -431,6 +454,22 @@ SupportedPublicKeyAlgorithms PUBLIC-KEY-ALGORITHM-CLASS ::= {
        ID ecdsa-with-SHA1
        TYPE NULL }  -- XXX Must be empty and not NULL
 
+   ecdsa-with-sha224 SIGNATURE-ALGORITHM-CLASS ::= {
+       ID ecdsa-with-SHA224
+       TYPE NULL }  -- XXX Must be empty and not NULL
+
+   ecdsa-with-sha256 SIGNATURE-ALGORITHM-CLASS ::= {
+       ID ecdsa-with-SHA256
+       TYPE NULL }  -- XXX Must be empty and not NULL
+
+   ecdsa-with-sha384 SIGNATURE-ALGORITHM-CLASS ::= {
+       ID ecdsa-with-SHA384
+       TYPE NULL }  -- XXX Must be empty and not NULL
+
+   ecdsa-with-sha512 SIGNATURE-ALGORITHM-CLASS ::= {
+       ID ecdsa-with-SHA512
+       TYPE NULL }  -- XXX Must be empty and not NULL
+
    FIELD-ID-CLASS ::= CLASS {
 	&id OBJECT IDENTIFIER UNIQUE,
 	&Type }
@@ -480,6 +519,7 @@ SupportedPublicKeyAlgorithms PUBLIC-KEY-ALGORITHM-CLASS ::= {
    pp-basis CHARACTERISTIC-TWO-CLASS ::= {
 	    ID ppBasis
 	    TYPE Pentanomial }
+
 
    -- SubjectPublicKeyInfo.algorithm
 

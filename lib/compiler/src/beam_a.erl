@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -70,8 +70,8 @@ rename_instr({bs_put_utf16=I,F,Fl,Src}) ->
     {bs_put,F,{I,Fl},[Src]};
 rename_instr({bs_put_utf32=I,F,Fl,Src}) ->
     {bs_put,F,{I,Fl},[Src]};
-%% rename_instr({bs_put_string,_,_}=I) ->
-%%     {bs_put,{f,0},I,[]};
+rename_instr({bs_put_string,_,_}=I) ->
+    {bs_put,{f,0},I,[]};
 rename_instr({bs_add=I,F,[Src1,Src2,U],Dst}) when is_integer(U) ->
     {bif,I,F,[Src1,Src2,{integer,U}],Dst};
 rename_instr({bs_utf8_size=I,F,Src,Dst}) ->

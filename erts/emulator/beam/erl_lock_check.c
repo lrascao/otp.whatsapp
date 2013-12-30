@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2005-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2005-2013. All Rights Reserved.
  *
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -132,6 +132,7 @@ static erts_lc_lock_order_t erts_lock_order[] = {
 #endif /* __WIN32__ */
     {	"alcu_init_atoms",			NULL			},
     {	"mseg_init_atoms",			NULL			},
+    {	"mmap_init_atoms",			NULL			},
     {	"drv_tsd",				NULL			},
     {	"async_enq_mtx",			NULL			},
 #ifdef ERTS_SMP
@@ -143,21 +144,20 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     {	"ptimer_pre_alloc_lock",		"address",		},
     {	"btm_pre_alloc_lock",			NULL,			},
     {	"dist_entry_out_queue",			"address"		},
+    {	"port_sched_lock",			"port_id"		},
+    {   "port_table",                           NULL                    },
 #endif
     {	"mtrace_op",				NULL			},
     {	"instr_x",				NULL			},
     {	"instr",				NULL			},
     {	"alcu_allocator",			"index"			},
-    {	"sbmbc_alloc",				"index"			},
     {	"mseg",					NULL			},
 #if HALFWORD_HEAP
     {	"pmmap",				NULL			},
 #endif
 #ifdef ERTS_SMP
-    {	"port_sched_lock",			"port_id"		},
     {	"port_task_pre_alloc_lock",		"address"		},
     {	"proclist_pre_alloc_lock",		"address"		},
-    {   "port_table",                           NULL                    },
     {	"xports_list_pre_alloc_lock",		"address"		},
     {	"inet_buffer_stack_lock",		NULL			},
     {	"gc_info",				NULL			},
@@ -181,7 +181,14 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     {   "efile_drv dtrace mutex",               NULL                    },
 #endif
     {	"mtrace_buf",				NULL			},
-    {	"erts_alloc_hard_debug",		NULL			}
+#ifdef __WIN32__
+#ifdef ERTS_SMP
+    {   "sys_gethrtime",                        NULL                    },
+#endif
+#endif
+    {	"erts_alloc_hard_debug",		NULL			},
+    {	"hard_dbg_mseg",		        NULL	                },
+    {	"erts_mmap",				NULL			}
 };
 
 #define ERTS_LOCK_ORDER_SIZE \

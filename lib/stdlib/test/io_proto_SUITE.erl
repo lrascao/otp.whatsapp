@@ -147,8 +147,7 @@ unicode_prompt(Config) when is_list(Config) ->
     %% And one with oldshell
      ?line rtnode([{putline,""},
 		   {putline, "2."},
-		   {getline_re, ".*2."},
-		   {getline, "2"},
+		   {getline_re, ".*2$"},
 		   {putline, "shell:prompt_func({io_proto_SUITE,uprompt})."},
 		   {getline_re, ".*default"},
 		   {putline, "io:get_line('')."},
@@ -263,8 +262,7 @@ setopts_getopts(Config) when is_list(Config) ->
     %% And one with oldshell
     ?line rtnode([{putline,""},
 		  {putline, "2."},
-		  {getline_re, ".*2."},
-		  {getline, "2"},
+		  {getline_re, ".*2$"},
 		  {putline, "lists:keyfind(binary,1,io:getopts())."},
 		  {getline_re, ".*{binary,false}"},
 		  {putline, "io:get_line('')."},
@@ -467,8 +465,7 @@ unicode_options(Config) when is_list(Config) ->
     end,
     ?line rtnode([{putline,""},
 		  {putline, "2."},
-		  {getline_re, ".*2."},
-		  {getline, "2"},
+		  {getline_re, ".*2$"},
 		  {putline, "lists:keyfind(encoding,1,io:getopts())."},
 		  {getline_re, ".*{encoding,latin1}"},
 		  {putline, "io:format(\"~ts~n\",[[1024]])."},
@@ -701,8 +698,7 @@ binary_options(Config) when is_list(Config) ->
 	old ->
 	    ok;
 	new ->
-	    ?line rtnode([{putline,""},
-			  {putline, "2."},
+	    ?line rtnode([{putline, "2."},
 			  {getline, "2"},
 			  {putline, "lists:keyfind(binary,1,io:getopts())."},
 			  {getline, "{binary,false}"},
@@ -720,10 +716,8 @@ binary_options(Config) when is_list(Config) ->
 			 ],[])
     end,
    %% And one with oldshell
-    ?line rtnode([{putline,""},
-		  {putline, "2."},
-		  {getline_re, ".*2."},
-		  {getline, "2"},
+    ?line rtnode([{putline, "2."},
+		  {getline_re, ".*2$"},
 		  {putline, "lists:keyfind(binary,1,io:getopts())."},
 		  {getline_re, ".*{binary,false}"},
 		  {putline, "io:get_line('')."},
@@ -935,8 +929,8 @@ bc_with_r12_gl_1(_Config,Machine) ->
     TestDataLine1BinUtf = unicode:characters_to_binary(TestDataLine1),
     TestDataLine1BinLatin = list_to_binary(TestDataLine1),
 
-    N2List = create_nodename(), 
-    MyNodeList = atom_to_list(node()), 
+    {ok,N2List} = create_nodename(),
+    MyNodeList = atom2list(node()),
     register(io_proto_suite,self()),
     AM1 = spawn(?MODULE,Machine,
 		[MyNodeList, "io_proto_suite", N2List]),
@@ -1182,8 +1176,8 @@ read_modes_gl_1(_Config,Machine) ->
     TestDataLine1BinUtf = unicode:characters_to_binary(TestDataLine1),
     TestDataLine1BinLatin = list_to_binary(TestDataLine1),
 
-    N2List = create_nodename(), 
-    MyNodeList = atom_to_list(node()), 
+    {ok,N2List} = create_nodename(),
+    MyNodeList = atom2list(node()),
     register(io_proto_suite,self()),
     AM1 = spawn(?MODULE,Machine,
 		[MyNodeList, "io_proto_suite", N2List]),
@@ -1609,7 +1603,7 @@ create_nodename(X) ->
     case file:read_file_info(filename:join(["/tmp",NN])) of
 	{error,enoent} ->
 	    Host = lists:nth(2,string:tokens(atom_to_list(node()),"@")),
-	    NN++"@"++Host;
+	    {ok,NN++"@"++Host};
 	_ ->
 	    create_nodename(X+1)
     end.
@@ -1924,6 +1918,9 @@ hostname() ->
 from(H, [H | T]) -> T;
 from(H, [_ | T]) -> from(H, T);
 from(_, []) -> [].
+
+atom2list(A) ->
+    lists:flatten(io_lib:format("~w", [A])).
 
 chomp([]) ->
     [];

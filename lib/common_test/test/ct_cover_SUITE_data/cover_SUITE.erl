@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -52,11 +52,10 @@ init_per_testcase(_Case, Config) ->
     [{watchdog, Dog}|Config].
 
 end_per_testcase(Case, Config) ->
-    %% try apply(?MODULE,Case,[cleanup,Config])
-    %% catch error:undef -> ok
-    %% end,
+    try apply(?MODULE,Case,[cleanup,Config])
+    catch error:undef -> ok
+    end,
 
-    kill_slaves(Case,nodes()),
     Dog=?config(watchdog, Config),
     test_server:timetrap_cancel(Dog),
     ok.
@@ -67,47 +66,52 @@ break(_Config) ->
     test_server:break(""),
     ok.
 
-default(Config) ->
+default(_Config) ->
     cover_compiled = code:which(cover_test_mod),
     cover_test_mod:foo(),
     ok.
 
-slave(Config) ->
+slave(_Config) ->
     cover_compiled = code:which(cover_test_mod),
     cover_test_mod:foo(),
     N1 = nodename(slave,1),
-    {ok,Node} = ct_slave:start(N1),
+    {ok,Node} = start_slave(N1),
     cover_compiled = rpc:call(Node,code,which,[cover_test_mod]),
     rpc:call(Node,cover_test_mod,foo,[]),
     {ok,Node} = ct_slave:stop(N1),
     ok.
+slave(cleanup,_Config) ->
+    kill_slaves([nodename(slave,1)]).
 
-slave_start_slave(Config) ->
+slave_start_slave(_Config) ->
     cover_compiled = code:which(cover_test_mod),
     cover_test_mod:foo(),
     N1 = nodename(slave_start_slave,1),
     N2 = nodename(slave_start_slave,2),
-    {ok,Node} = ct_slave:start(N1),
+    {ok,Node} = start_slave(N1),
     cover_compiled = rpc:call(Node,code,which,[cover_test_mod]),
     rpc:call(Node,cover_test_mod,foo,[]),
-    {ok,Node2} = rpc:call(Node,ct_slave,start,[N2]),
+    {ok,Node2} = start_slave(Node,N2), % start slave N2 from node Node
     rpc:call(Node2,cover_test_mod,foo,[]),
     {ok,Node2} = rpc:call(Node,ct_slave,stop,[N2]),
     {ok,Node} = ct_slave:stop(N1),
     ok.
+slave_start_slave(cleanup,_Config) ->
+    kill_slaves([nodename(slave_start_slave,1),
+		 nodename(slave_start_slave,2)]).
 
-cover_node_option(Config) ->
+cover_node_option(_Config) ->
     cover_compiled = code:which(cover_test_mod),
     cover_test_mod:foo(),
-    Node = fullname(existing_node),
+    Node = fullname(existing_node_1),
     cover_compiled = rpc:call(Node,code,which,[cover_test_mod]),
     rpc:call(Node,cover_test_mod,foo,[]),
     ok.
 
-ct_cover_add_remove_nodes(Config) ->
+ct_cover_add_remove_nodes(_Config) ->
     cover_compiled = code:which(cover_test_mod),
     cover_test_mod:foo(),
-    Node = fullname(existing_node),
+    Node = fullname(existing_node_2),
     Beam = rpc:call(Node,code,which,[cover_test_mod]),
     false = (Beam == cover_compiled),
 
@@ -143,14 +147,20 @@ fullname(Name) ->
     {ok,Host} = inet:gethostname(),
     list_to_atom(atom_to_list(Name) ++ "@" ++ Host).
 
-kill_slaves(Case, [Node|Nodes]) ->
-    Prefix = nodeprefix(Case),
-    case lists:prefix(Prefix,atom_to_list(Node)) of
-	true ->
-	    rpc:call(Node,erlang,halt,[]);
-	_ ->
-	    ok
-    end,
-    kill_slaves(Case,Nodes);
-kill_slaves(_,[]) ->
+kill_slaves([Name|Names]) ->
+    _ = rpc:call(fullname(Name),erlang,halt,[]),
+    kill_slaves(Names);
+kill_slaves([]) ->
     ok.
+
+start_slave(Name) ->
+    start_slave(node(),Name).
+
+start_slave(FromNode,Name) ->
+    {ok, HostStr}=inet:gethostname(),
+    Host = list_to_atom(HostStr),
+    rpc:call(FromNode,ct_slave,start,
+	     [Host,Name,
+	      [{boot_timeout,15}, % extending some timers for slow test hosts
+	       {init_timeout,15},
+	       {startup_timeout,15}]]).

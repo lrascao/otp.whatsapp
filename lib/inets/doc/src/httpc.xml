@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2004</year><year>2012</year>
+      <year>2004</year><year>2013</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -300,11 +300,11 @@ filename()       = string()
 	    process or to a file. When streaming to the calling process 
 	    using the option <c>self</c> the following stream messages
 	    will be sent to that process: <c>{http, {RequestId,
-	    stream_start, Headers}, {http, {RequestId, stream,
-	    BinBodyPart}, {http, {RequestId, stream_end, Headers}</c>. When
+	    stream_start, Headers}}, {http, {RequestId, stream,
+	    BinBodyPart}}, {http, {RequestId, stream_end, Headers}}</c>. When
 	    streaming to to the calling processes using the option
 	    <c>{self, once}</c> the first message will have an additional
-	    element e.i. <c>{http, {RequestId, stream_start, Headers, Pid}</c>,
+	    element e.i. <c>{http, {RequestId, stream_start, Headers, Pid}}</c>,
 	    this is the process id that should be used as an argument to
 	    <c>http:stream_next/1</c> to trigger the next message to be sent to
 	    the calling process. </p>
@@ -440,7 +440,10 @@ apply(Module, Function, [ReplyInfo | Args])
 	<v>Profile = profile() | pid() (when started <c>stand_alone</c>)</v>
       </type>
       <desc>
-        <p>Cancels an asynchronous HTTP-request. </p>
+        <p>Cancels an asynchronous HTTP-request. Note this does not guarantee
+	that the request response will not be delivered, as it is asynchronous the
+	the request may already have been completed when the cancellation arrives.
+	</p>
 
         <marker id="set_options"></marker>
       </desc>

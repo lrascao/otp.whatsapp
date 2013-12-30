@@ -21,15 +21,9 @@
 
 -include("asn1_records.hrl").
 
--export([pgen_exports/3,
-	 pgen_hrl/5,
-	 gen_head/3,
-	 demit/1,
+-export([demit/1,
 	 emit/1,
 	 get_inner/1,type/1,def_to_tag/1,prim_bif/1,
-	 type_from_object/1,
-	 get_typefromobject/1,get_fieldcategory/2,
-	 get_classfieldcategory/2,
 	 list2name/1,
 	 list2rname/1,
 	 constructed_suffix/2,
@@ -39,9 +33,10 @@
 	 insert_once/2,
 	 ct_gen_module/1,
 	 index2suffix/1,
-	 get_record_name_prefix/0]).
+	 get_record_name_prefix/0,
+	 conform_value/2,
+	 named_bitstring_value/2]).
 -export([pgen/5,
-	 pgen_module/6,
 	 mk_var/1, 
 	 un_hyphen_var/1]).
 -export([gen_encode_constructed/4,
@@ -75,7 +70,7 @@ pgen_module(OutFile,Erules,Module,
     HrlGenerated = pgen_hrl(Erules,Module,TypeOrVal,Options,Indent),
     asn1ct_name:start(),
     ErlFile = lists:concat([OutFile,".erl"]),
-    Fid = fopen(ErlFile,[write]),
+    Fid = fopen(ErlFile),
     put(gen_file_out,Fid),
     asn1ct_func:start_link(),
     gen_head(Erules,Module,HrlGenerated),
@@ -92,6 +87,8 @@ pgen_module(OutFile,Erules,Module,
 	  "%%%",nl]),
     asn1ct_func:generate(Fid),
     file:close(Fid),
+    _ = erase(gen_file_out),
+    _ = erase(outfile),
     asn1ct:verbose("--~p--~n",[{generated,ErlFile}],Options).
 
 
@@ -115,8 +112,7 @@ pgen_values(Erules,Module,[H|T]) ->
     gen_value(Valuedef),
     pgen_values(Erules,Module,T).
 
-pgen_types(_,_,_,Module,[]) ->
-    gen_value_match(Module),
+pgen_types(_, _, _, _, []) ->
     true;
 pgen_types(Rtmod,Erules,N2nConvEnums,Module,[H|T]) ->
     asn1ct_name:clear(),
@@ -580,22 +576,6 @@ gen_types(Erules,Tname,Type) when is_record(Type,type) ->
     asn1ct_name:clear(),
     Rtmod:gen_decode(Erules,Tname,Type).
 
-gen_value_match(Module) ->
-    case get(value_match) of
-	{true,Module} ->
-	    emit(["value_match([{Index,Cname}|Rest],Value) ->",nl,
-		  "  Value2 =",nl,
-		  "    case element(Index,Value) of",nl,
-		  "      {Cname,Val2} -> Val2;",nl,
-		  "      X -> X",nl,
-		  "    end,",nl,
-		  "  value_match(Rest,Value2);",nl,
-		  "value_match([],Value) ->",nl,
-		  "  Value.",nl]);
-	_  -> ok
-    end,
-    put(value_match,undefined).
-
 gen_check_defaultval(Erules,Module,[{Name,Type}|Rest]) ->
     gen_check_func(Name,Type),
     gen_check_defaultval(Erules,Module,Rest);
@@ -822,7 +802,12 @@ pgen_exports(Erules,_Module,{Types,Values,_,_,Objects,ObjectSets}) ->
 		    gen_exports1(Types,"enc_",1)
 	    end,
 	    emit({"-export([",nl}),
-	    gen_exports1(Types,"dec_",2)
+	    case Erules of
+		ber ->
+		    gen_exports1(Types, "dec_", 2);
+		_ ->
+		    gen_exports1(Types, "dec_", 1)
+	    end
     end,
     case [X || {n2n,X} <- get(encoding_options)] of
 	[] -> ok;
@@ -843,10 +828,7 @@ pgen_exports(Erules,_Module,{Types,Values,_,_,Objects,ObjectSets}) ->
 	_ ->
 	    case erule(Erules) of
 		per ->
-		    emit({"-export([",nl}),
-		    gen_exports1(Objects,"enc_",3),
-		    emit({"-export([",nl}),
-		    gen_exports1(Objects,"dec_",4);
+		    ok;
 		ber ->
 		    emit({"-export([",nl}),
 		    gen_exports1(Objects,"enc_",3),
@@ -857,10 +839,15 @@ pgen_exports(Erules,_Module,{Types,Values,_,_,Objects,ObjectSets}) ->
     case ObjectSets of
 	[] -> ok;
 	_ ->
-	    emit({"-export([",nl}),
-	    gen_exports1(ObjectSets,"getenc_",2),
-	    emit({"-export([",nl}),
-	    gen_exports1(ObjectSets,"getdec_",2)
+	    case erule(Erules) of
+		per ->
+		    ok;
+		ber ->
+		    emit({"-export([",nl}),
+		    gen_exports1(ObjectSets, "getenc_",1),
+		    emit({"-export([",nl}),
+		    gen_exports1(ObjectSets, "getdec_",1)
+	    end
     end,
     emit({"-export([info/0]).",nl}),
     gen_partial_inc_decode_exports(),
@@ -924,41 +911,45 @@ pgen_dispatcher(Erules,_Module,{[],_Values,_,_,_Objects,_ObjectSets}) ->
 pgen_dispatcher(Erules,_Module,{Types,_Values,_,_,_Objects,_ObjectSets}) ->
     emit(["-export([encode/2,decode/2]).",nl,nl]),
     gen_info_functions(Erules),
-    NoFinalPadding = lists:member(no_final_padding,get(encoding_options)),
-    {Call,BytesAsBinary} =
-	case Erules of
-	    per ->
-		asn1ct_func:need({Erules,complete,1}),
-		{["complete(encode_disp(Type, Data))"],"Bytes"};
-	    ber ->
-		{"encode_disp(Type,Data)","iolist_to_binary(Bytes)"};
-	    uper when NoFinalPadding == true ->
-		asn1ct_func:need({Erules,complete_NFP,1}),
-		{"complete_NFP(encode_disp(Type, Data))","Bytes"};
-	    uper ->
-		asn1ct_func:need({Erules,complete,1}),
-		{["complete(encode_disp(Type, Data))"],"Bytes"}
-	end,
-    emit(["encode(Type,Data) ->",nl,
-	  "case catch ",Call," of",nl,
-	  "  {'EXIT',{error,Reason}} ->",nl,
-	  "    {error,Reason};",nl,
-	  "  {'EXIT',Reason} ->",nl,
-	  "    {error,{asn1,Reason}};",nl,
-	  "  {Bytes,_Len} ->",nl,
-	  "    {ok,",BytesAsBinary,"};",nl,
-	  "  Bytes ->",nl,
-	  "    {ok,",BytesAsBinary,"}",nl,
-	  "end.",nl,nl]),
 
-    Return_rest = lists:member(undec_rest,get(encoding_options)),
+    Options = get(encoding_options),
+    NoFinalPadding = lists:member(no_final_padding, Options),
+    NoOkWrapper = proplists:get_bool(no_ok_wrapper, Options),
+
+    Call = case Erules of
+	       per ->
+		   asn1ct_func:need({Erules,complete,1}),
+		   "complete(encode_disp(Type, Data))";
+	       ber ->
+		   "iolist_to_binary(element(1, encode_disp(Type, Data)))";
+	       uper when NoFinalPadding == true ->
+		   asn1ct_func:need({Erules,complete_NFP,1}),
+		   "complete_NFP(encode_disp(Type, Data))";
+	       uper ->
+		   asn1ct_func:need({Erules,complete,1}),
+		   "complete(encode_disp(Type, Data))"
+	   end,
+
+    emit(["encode(Type, Data) ->",nl]),
+    case NoOkWrapper of
+	true ->
+	    emit(["  ",Call,"."]);
+	false ->
+	    emit(["try ",Call," of",nl,
+		  "  Bytes ->",nl,
+		  "    {ok,Bytes}",nl,
+		  try_catch()])
+    end,
+    emit([nl,nl]),
+
+    Return_rest = proplists:get_bool(undec_rest, Options),
     Data = case {Erules,Return_rest} of
 	       {ber,true} -> "Data0";
 	       _ -> "Data"
 	   end,
 
     emit(["decode(Type,",Data,") ->",nl]),
-    DecAnonymous =
+    DecWrap =
 	case {Erules,Return_rest} of
 	    {ber,false} ->
 		asn1ct_func:need({ber,ber_decode_nif,1}),
@@ -970,49 +961,26 @@ pgen_dispatcher(Erules,_Module,{Types,_Values,_,_,_Objects,_ObjectSets}) ->
 	    _ ->
 		"Data"
 	end,
-    DecWrap = case Erules of
-		  ber ->
-		      DecAnonymous;
-		  _ -> "Data"
-	      end,
-	    
-    emit(["case catch decode_disp(Type,",DecWrap,") of",nl,
-	  "  {'EXIT',{error,Reason}} ->",nl,
-	  "    {error,Reason};",nl,
-	  "  {'EXIT',Reason} ->",nl,
-	  "    {error,{asn1,Reason}};",nl]),
-    case {Erules,Return_rest} of 
-	{ber,false} ->
-	    emit(["  Result ->",nl,
-		  "    {ok,Result}",nl]);
-	{ber,true} ->
-	    emit(["  Result ->",nl,
-		  "    {ok,Result,Rest}",nl]);
-	{_,false} ->
-	    emit(["  {X,_Rest} ->",nl,
-		  "    {ok,X};",nl,
-		  "  {X,_Rest,_Len} ->",nl,
-		  "    {ok,X}",nl]);
-	{per,true} ->
-	    emit(["  {X,{_,Rest}} ->",nl,
-		  "    {ok,X,Rest};",nl,
-		  "  {X,{_,Rest},_Len} ->",nl,
-		  "    {ok,X,Rest};",nl,
-		  "  {X,Rest} ->",nl,
-		  "    {ok,X,Rest};",nl,
-		  "  {X,Rest,_Len} ->",nl,
-		  "    {ok,X,Rest}",nl]);
-	{uper,true} ->
-	    emit(["  {X,{_,Rest}} ->",nl,
-		  "    {ok,X,Rest};",nl,
-		  "  {X,{_,Rest},_Len} ->",nl,
-		  "    {ok,X,Rest};",nl,
-		  "  {X,Rest} ->",nl,
-		  "    {ok,X,Rest};",nl,
-		  "  {X,Rest,_Len} ->",nl,
-		  "    {ok,X,Rest}",nl])
+    emit([case NoOkWrapper of
+	      false -> "try";
+	      true -> "case"
+	  end, " decode_disp(Type, ",DecWrap,") of",nl]),
+    case erule(Erules) of
+	ber ->
+	    emit(["  Result ->",nl]);
+	per ->
+	    emit(["  {Result,Rest} ->",nl])
     end,
-    emit(["end.",nl,nl]),
+    case Return_rest of
+	false -> result_line(NoOkWrapper, ["Result"]);
+	true ->  result_line(NoOkWrapper, ["Result","Rest"])
+    end,
+    case NoOkWrapper of
+	false ->
+	    emit([nl,try_catch(),nl,nl]);
+	true ->
+	    emit([nl,"end.",nl,nl])
+    end,
 
     gen_decode_partial_incomplete(Erules),
 
@@ -1023,10 +991,32 @@ pgen_dispatcher(Erules,_Module,{Types,_Values,_,_,_Objects,_ObjectSets}) ->
 	    gen_partial_inc_dispatcher();
 	_PerOrPer_bin -> 
 	    gen_dispatcher(Types,"encode_disp","enc_",""),
-	    gen_dispatcher(Types,"decode_disp","dec_",",mandatory")
+	    gen_dispatcher(Types,"decode_disp","dec_","")
     end,
-    emit([nl]),
-    emit({nl,nl}).
+    emit([nl,nl]).
+
+result_line(NoOkWrapper, Items) ->
+    S = ["    "|case NoOkWrapper of
+		    false -> result_line_1(["ok"|Items]);
+		    true -> result_line_1(Items)
+		end],
+    emit(lists:flatten(S)).
+
+result_line_1([SingleItem]) ->
+    SingleItem;
+result_line_1(Items) ->
+    ["{",string:join(Items, ","),"}"].
+
+try_catch() ->
+    ["  catch",nl,
+     "    Class:Exception when Class =:= error; Class =:= exit ->",nl,
+     "      case Exception of",nl,
+     "        {error,Reason}=Error ->",nl,
+     "          Error;",nl,
+     "        Reason ->",nl,
+     "         {error,{asn1,Reason}}",nl,
+     "      end",nl,
+     "end."].
 
 gen_info_functions(Erules) ->
     emit(["encoding_rule() -> ",
@@ -1131,7 +1121,7 @@ pgen_info() ->
 
 open_hrl(OutFile,Module) ->
     File = lists:concat([OutFile,".hrl"]),
-    Fid = fopen(File,[write]),
+    Fid = fopen(File),
     put(gen_file_out,Fid),
     gen_hrlhead(Module).
 
@@ -1146,80 +1136,67 @@ demit(Term) ->
     end.
 
 						% always generation
+emit(Term) ->
+    ok = file:write(get(gen_file_out), do_emit(Term)).
 
-emit({external,_M,T}) ->
-    emit(T);
+do_emit({external,_M,T}) ->
+    do_emit(T);
 
-emit({prev,Variable}) when is_atom(Variable) ->
-    emit({var,asn1ct_name:prev(Variable)});
+do_emit({prev,Variable}) when is_atom(Variable) ->
+    do_emit({var,asn1ct_name:prev(Variable)});
 
-emit({next,Variable}) when is_atom(Variable) ->
-    emit({var,asn1ct_name:next(Variable)});
+do_emit({next,Variable}) when is_atom(Variable) ->
+    do_emit({var,asn1ct_name:next(Variable)});
 
-emit({curr,Variable}) when is_atom(Variable) ->
-    emit({var,asn1ct_name:curr(Variable)});
+do_emit({curr,Variable}) when is_atom(Variable) ->
+    do_emit({var,asn1ct_name:curr(Variable)});
     
-emit({var,Variable}) when is_atom(Variable) ->
+do_emit({var,Variable}) when is_atom(Variable) ->
     [Head|V] = atom_to_list(Variable),
-    emit([Head-32|V]);
+    [Head-32|V];
 
-emit({var,Variable}) ->
+do_emit({var,Variable}) ->
     [Head|V] = Variable,
-    emit([Head-32|V]);
+    [Head-32|V];
 
-emit({asis,What}) ->
-    format(get(gen_file_out),"~w",[What]);
+do_emit({asis,What}) ->
+    io_lib:format("~w", [What]);
 
-emit({call,M,F,A}) ->
-    asn1ct_func:call(M, F, A);
+do_emit({call,M,F,A}) ->
+    MFA = {M,F,length(A)},
+    asn1ct_func:need(MFA),
+    [atom_to_list(F),"(",call_args(A, "")|")"];
 
-emit(nl) ->
-    nl(get(gen_file_out));
+do_emit(nl) ->
+    "\n";
 
-emit(com) ->
-    emit(",");
+do_emit(com) ->
+    ",";
 
-emit(tab) ->
-    put_chars(get(gen_file_out),"     ");
+do_emit(tab) ->
+    "     ";
 
-emit(What) when is_integer(What) ->
-    put_chars(get(gen_file_out),integer_to_list(What));
+do_emit(What) when is_integer(What) ->
+    integer_to_list(What);
 
-emit(What) when is_list(What), is_integer(hd(What)) ->
-    put_chars(get(gen_file_out),What);
+do_emit(What) when is_list(What), is_integer(hd(What)) ->
+    What;
 
-emit(What) when is_atom(What) ->
-    put_chars(get(gen_file_out),atom_to_list(What));
+do_emit(What) when is_atom(What) ->
+    atom_to_list(What);
 
-emit(What) when is_tuple(What) ->
-    emit_parts(tuple_to_list(What));
+do_emit(What) when is_tuple(What) ->
+    [do_emit(E) || E <- tuple_to_list(What)];
 
-emit(What) when is_list(What) ->
-    emit_parts(What);
+do_emit(What) when is_list(What) ->
+    [do_emit(E) || E <- What].
 
-emit(X) ->
-    exit({'cant emit ',X}).
+call_args([A|As], Sep) ->
+    [Sep,do_emit(A)|call_args(As, ", ")];
+call_args([], _) -> [].
 
-emit_parts([]) -> true;
-emit_parts([H|T]) ->
-    emit(H),
-    emit_parts(T).
-
-format(undefined,X,Y) ->
-    io:format(X,Y);
-format(X,Y,Z) ->
-    io:format(X,Y,Z).
-
-nl(undefined) -> io:nl();
-nl(X) -> io:nl(X).
-
-put_chars(undefined,X) ->
-    io:put_chars(X);
-put_chars(Y,X) ->
-    io:put_chars(Y,X).
-
-fopen(F, ModeList) ->
-    case file:open(F, ModeList) of
+fopen(F) ->
+    case file:open(F, [write,raw,delayed_write]) of
 	{ok, Fd} -> 
 	    Fd;
 	{error, Reason} ->
@@ -1510,8 +1487,14 @@ gen_prim_check_call(PrimType, Default, Element, Type) ->
 		  end,
 	    check_call(check_int, [Default,Element,{asis,NNL}]);
 	'BIT STRING' ->
-	    {_,NBL} = Type#type.def,
-	    check_call(check_bitstring, [Default,Element,{asis,NBL}]);
+	    case Type#type.def of
+		{_,[]} ->
+		    check_call(check_bitstring,
+			       [Default,Element]);
+		{_,[_|_]=NBL} ->
+		    check_call(check_named_bitstring,
+			       [Default,Element,{asis,NBL}])
+	    end;
 	'OCTET STRING' ->
 	    check_call(check_octetstring, [Default,Element]);
 	'NULL' ->
@@ -1665,13 +1648,36 @@ unify_if_string(PrimType) ->
 	Other -> Other
     end.
 
+conform_value(#type{def={'BIT STRING',[]}}, Bs) ->
+    case asn1ct:get_bit_string_format() of
+	compact when is_binary(Bs) ->
+	    {0,Bs};
+	compact when is_bitstring(Bs) ->
+	    Sz = bit_size(Bs),
+	    Unused = 8 - bit_size(Bs),
+	    {Unused,<<Bs:Sz/bits,0:Unused>>};
+	legacy ->
+	    [B || <<B:1>> <= Bs];
+	bitstring when is_bitstring(Bs) ->
+	    Bs
+    end;
+conform_value(_, Value) -> Value.
 
-	
-	
+named_bitstring_value(List, Names) ->
+    Int = lists:foldl(fun(N, A) ->
+			      {N,Pos} = lists:keyfind(N, 1, Names),
+			      A bor (1 bsl Pos)
+		      end, 0, List),
+    named_bitstring_value_1(<<>>, Int).
+
+named_bitstring_value_1(Bs, 0) ->
+    Bs;
+named_bitstring_value_1(Bs, Int) ->
+    B = Int band 1,
+    named_bitstring_value_1(<<Bs/bitstring,B:1>>, Int bsr 1).
 
 get_inner(A) when is_atom(A) -> A;    
 get_inner(Ext) when is_record(Ext,'Externaltypereference') -> Ext;    
-get_inner(Tref) when is_record(Tref,typereference) -> Tref;
 get_inner({fixedtypevaluefield,_,Type}) ->
     if 
 	is_record(Type,type) ->
@@ -1704,8 +1710,6 @@ get_inner(T) when is_tuple(T) ->
 
 type(X) when is_record(X,'Externaltypereference') ->
     X;
-type(X) when is_record(X,typereference) ->
-    X;
 type('ASN1_OPEN_TYPE') ->
     'ASN1_OPEN_TYPE';
 type({fixedtypevaluefield,_Name,Type}) when is_record(Type,type) ->
@@ -1713,15 +1717,6 @@ type({fixedtypevaluefield,_Name,Type}) when is_record(Type,type) ->
 type({typefield,_}) ->
     'ASN1_OPEN_TYPE';
 type(X) ->
-    %%    io:format("asn1_types:type(~p)~n",[X]),
-    case catch type2(X) of
-	{'EXIT',_} ->
-	    {notype,X};
-	Normal ->
-	    Normal
-    end.
-
-type2(X) ->
     case prim_bif(X) of
 	true ->
 	    {primitive,bif};
@@ -1740,7 +1735,6 @@ prim_bif(X) ->
 		    'REAL',
 		    'OBJECT IDENTIFIER',
 		    'RELATIVE-OID',
-		    'ANY',
 		    'NULL',
 		    'BIT STRING' ,
 		    'OCTET STRING' ,
@@ -1784,15 +1778,6 @@ def_to_tag(Def) ->
 
 %% Information Object Class
 
-type_from_object(X) ->
-    case (catch lists:last(element(2,X))) of
-	{'EXIT',_} ->
-	    {notype,X};
-	Normal ->
-	    Normal
-    end.
-
-
 get_fieldtype([],_FieldName)->
     {no_type,no_name};
 get_fieldtype([Field|Rest],FieldName) ->
@@ -1808,34 +1793,6 @@ get_fieldtype([Field|Rest],FieldName) ->
 	    get_fieldtype(Rest,FieldName)
     end.
 
-get_fieldcategory([],_FieldName) ->
-    no_cat;
-get_fieldcategory([Field|Rest],FieldName) ->
-    case element(2,Field) of
-	FieldName ->
-	    element(1,Field);
-	_ ->
-	    get_fieldcategory(Rest,FieldName)
-    end.
-
-get_typefromobject(Type) when is_record(Type,type) ->
-    case Type#type.def of
-	{{objectclass,_,_},TypeFrObj} when is_list(TypeFrObj) ->
-	    {_,FieldName} = lists:last(TypeFrObj),
-	    FieldName;
-	_ ->
-	    {no_field}
-    end.
-
-get_classfieldcategory(Type,FieldName) ->
-    case (catch Type#type.def) of
-	{{obejctclass,Fields,_},_} ->
-	    get_fieldcategory(Fields,FieldName);
-	{'EXIT',_} ->
-	    no_cat;
-	_ ->
-	    no_cat
-    end.
 %% Information Object Class
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1902,7 +1859,7 @@ index2suffix(N) ->
 ct_gen_module(ber) ->
     asn1ct_gen_ber_bin_v2;
 ct_gen_module(per) ->
-    asn1ct_gen_per_rt2ct;
+    asn1ct_gen_per;
 ct_gen_module(uper) ->
     asn1ct_gen_per.
 

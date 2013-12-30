@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="iso-8859-1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -32,9 +32,164 @@
     <file>notes.xml</file>
   </header>
   
-  
-  <section><title>Inets 5.9.4</title>
+  <section><title>Inets 5.9.7</title>
 
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix httpd config option 'script_timeout' and fixed httpd
+	    config option 'keep_alive_timeout'. Thanks to Johannes
+	    Weissl.</p>
+          <p>
+	    Own Id: OTP-11276</p>
+        </item>
+        <item>
+          <p>
+	    Make httpc:request_cancel/[1,2] asynchronous. Previously
+	    these functions tried to guarantee request answer would
+	    not reach the client, which only worked for some of the
+	    use cases. Now these functions are totally asynchronous
+	    which makes it the clients responsibility to disregard
+	    possible answers to canceled requests. </p>
+          <p>
+	    Also pipelining implementation has been changed to
+	    improve the utilization factor. Further investigation of
+	    possible enhancements in this area are planned for later.</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-11312</p>
+        </item>
+        <item>
+          <p>
+	    [httpd] Add handling of new response for mod_head
+	    (otherwise causing case_clause crash). Also updated
+	    logging: Removed logging for keep-alive connections
+	    timeout (this is a normal occurrence and not an error)
+	    and some access-log body size corrections.</p>
+          <p>
+	    Own Id: OTP-11328</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The ftp client now supports ftp over tls (ftps).</p>
+          <p>
+	    Own Id: OTP-11037</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 5.9.6</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    httpc: Allow content body in DELETE requests. Thanks to
+	    James Wheare.</p>
+          <p>
+	    Own Id: OTP-11190</p>
+        </item>
+        <item>
+          <p>
+	    Add missing brackets to report formatting on ftp_progress
+	    process exit. Thanks to Artur Wilniewczyc.</p>
+          <p>
+	    Own Id: OTP-11202</p>
+        </item>
+        <item>
+          <p>
+	    Fix some errors in the inets documentation. Thanks to
+	    Johannes Weissl.</p>
+          <p>
+	    Own Id: OTP-11210</p>
+        </item>
+        <item>
+          <p>
+	    Fix various typos in httpd, inets. Thanks to Tomohiko
+	    Aono.</p>
+          <p>
+	    Own Id: OTP-11226</p>
+        </item>
+        <item>
+          <p>
+	    Fix httpd config option 'erl_script_nocache'. Thanks to
+	    Johannes Weissl.</p>
+          <p>
+	    Own Id: OTP-11260</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 5.9.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Reverted incorrect commit that broke cookie handling when
+	    using httpc-profiles.</p>
+          <p>
+	    Own Id: OTP-10956</p>
+        </item>
+      </list>
+    </section>
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Fix http_request:http_headers/1 to send content-length
+	    when length is zero. Thanks to CA Meijer.</p>
+          <p>
+	    Own Id: OTP-10934</p>
+        </item>
+        <item>
+          <p>
+	    Integrate elliptic curve contribution from Andreas
+	    Schultz </p>
+          <p>
+	    In order to be able to support elliptic curve cipher
+	    suites in SSL/TLS, additions to handle elliptic curve
+	    infrastructure has been added to public_key and crypto.</p>
+          <p>
+	    This also has resulted in a rewrite of the crypto API to
+	    gain consistency and remove unnecessary overhead. All OTP
+	    applications using crypto has been updated to use the new
+	    API.</p>
+          <p>
+	    Impact: Elliptic curve cryptography (ECC) offers
+	    equivalent security with smaller key sizes than other
+	    public key algorithms. Smaller key sizes result in
+	    savings for power, memory, bandwidth, and computational
+	    cost that make ECC especially attractive for constrained
+	    environments.</p>
+          <p>
+	    Own Id: OTP-11009</p>
+        </item>
+        <item>
+          <p>
+	    Fix {stream, {self, once}} in httpc to work as expected.
+	    Thanks to Masatake Daimon</p>
+          <p>
+	    Own Id: OTP-11122</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 5.9.4</title>
     <section><title>Improvements and New Features</title>
       <list>
         <item>
@@ -100,6 +255,32 @@
       </list>
     </section>
 
+</section>
+<section><title>Inets 5.9.2.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Make log_alert configurable as option in ssl, SSLLogLevel
+	    added as option to inets conf file</p>
+          <p>
+	    Own Id: OTP-11259</p>
+	</item>
+      </list>
+    </section>
+</section>
+<section><title>Inets 5.9.2.1</title>
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Fixed obsolete error report in inets.</p>
+	  <p>
+	    Own Id: OTP-11185 Aux Id: seq12357 </p>
+	</item>
+      </list>
+    </section>
 </section>
 
 <section><title>Inets 5.9.2</title>
@@ -535,7 +716,7 @@
           <p>[httpd] Fix httpd directory traversal on Windows. 
           Directory traversal was possible on Windows where
           backward slash is used as directory separator. </p>
-          <p>András Veres-Szentkirályi.</p>
+          <p>AndrÃ¡s Veres-SzentkirÃ¡lyi.</p>
           <p>Own Id: OTP-9561</p>
         </item>
 
@@ -643,7 +824,7 @@
 
         <item>
           <p>[httpd] Improved error messages. </p>
-	  <p>Ricardo Catalinas Jiménez</p>
+	  <p>Ricardo Catalinas JimÃ©nez</p>
           <p>Own Id: OTP-9157</p>
         </item>
 

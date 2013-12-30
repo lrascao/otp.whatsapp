@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -229,6 +229,24 @@ wake_hib(Parent, ServerName, MSL, Debug) ->
 
 fetch_msg(Parent, ServerName, MSL, Debug, Hib) ->
     receive
+	{system, From, get_state} ->
+	    States = [{Mod,Id,State} || #handler{module=Mod, id=Id, state=State} <- MSL],
+	    sys:handle_system_msg(get_state, From, Parent, ?MODULE, Debug,
+				  {States, [ServerName, MSL, Hib]}, Hib);
+	{system, From, {replace_state, StateFun}} ->
+	    {NMSL, NStates} =
+		lists:unzip([begin
+				 Cur = {Mod,Id,State},
+				 try
+				     NState = {Mod,Id,NS} = StateFun(Cur),
+				     {HS#handler{state=NS}, NState}
+				 catch
+				     _:_ ->
+					 {HS, Cur}
+				 end
+			     end || #handler{module=Mod, id=Id, state=State}=HS <- MSL]),
+	    sys:handle_system_msg(replace_state, From, Parent, ?MODULE, Debug,
+				  {NStates, [ServerName, NMSL, Hib]}, Hib);
 	{system, From, Req} ->
 	    sys:handle_system_msg(Req, From, Parent, ?MODULE, Debug,
 				  [ServerName, MSL, Hib],Hib);

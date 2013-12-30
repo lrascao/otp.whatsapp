@@ -29,8 +29,8 @@
 -include("ssl_internal.hrl").
 -include("ssl_alert.hrl").
 -include("ssl_internal.hrl").
--include("ssl_record.hrl").
--include("ssl_handshake.hrl").
+-include("tls_record.hrl").
+-include("tls_handshake.hrl").
 
 -define(LONG_TIMEOUT, 600000).
 
@@ -80,13 +80,12 @@ init_per_suite(Config0) ->
     catch crypto:stop(),
     try crypto:start() of
 	ok ->
-	    application:start(public_key),
-	    application:start(ssl),
+	    ssl:start(),
 	    %% make rsa certs using oppenssl
 	    Result =
 		(catch make_certs:all(?config(data_dir, Config0),
 				      ?config(priv_dir, Config0))),
-	    ct:print("Make certs  ~p~n", [Result]),
+	    ct:log("Make certs  ~p~n", [Result]),
 
 	    Config1 = ssl_test_lib:make_dsa_cert(Config0),
 	    Config = ssl_test_lib:cert_options(Config1),
@@ -251,10 +250,15 @@ server_require_peer_cert_fail(Config) when is_list(Config) ->
 					      {host, Hostname},
 					      {from, self()},
 					      {options, [{active, false} | BadClientOpts]}]),
-
-    ssl_test_lib:check_result(Server, {error, {tls_alert, "handshake failure"}},
-			      Client, {error, {tls_alert, "handshake failure"}}).
-
+    receive
+	{Server, {error, {tls_alert, "handshake failure"}}} ->
+	    receive
+		{Client, {error, {tls_alert, "handshake failure"}}} ->
+		    ok;
+		{Client, {error, closed}} ->
+		    ok
+	    end
+    end.
 
 %%--------------------------------------------------------------------
 verify_fun_always_run_client() ->
@@ -297,7 +301,7 @@ verify_fun_always_run_client(Config) when is_list(Config) ->
     %% this is not a bug it is a circumstance of how tcp works!
     receive
 	{Server, ServerError} ->
-	    ct:print("Server Error ~p~n", [ServerError])
+	    ct:log("Server Error ~p~n", [ServerError])
     end,
 
     ssl_test_lib:check_result(Client, {error, {tls_alert, "handshake failure"}}).
@@ -346,7 +350,7 @@ verify_fun_always_run_server(Config) when is_list(Config) ->
     %% this is not a bug it is a circumstance of how tcp works!
     receive
 	{Client, ClientError} ->
-	    ct:print("Client Error ~p~n", [ClientError])
+	    ct:log("Client Error ~p~n", [ClientError])
     end,
 
     ssl_test_lib:check_result(Server, {error, {tls_alert, "handshake failure"}}).
@@ -413,7 +417,7 @@ cert_expired(Config) when is_list(Config) ->
 							       two_digits_str(Sec)])),
     NewValidity = {'Validity', {generalTime, NotBeforeStr}, {generalTime, NotAfterStr}},
 
-    ct:print("Validity: ~p ~n NewValidity: ~p ~n",
+    ct:log("Validity: ~p ~n NewValidity: ~p ~n",
 		       [OTPTbsCert#'OTPTBSCertificate'.validity, NewValidity]),
 
     NewOTPTbsCert =  OTPTbsCert#'OTPTBSCertificate'{validity = NewValidity},
@@ -644,7 +648,7 @@ no_authority_key_identifier(Config) when is_list(Config) ->
     NewExtensions =  delete_authority_key_extension(Extensions, []),
     NewOTPTbsCert =  OTPTbsCert#'OTPTBSCertificate'{extensions = NewExtensions},
 
-    ct:print("Extensions ~p~n, NewExtensions: ~p~n", [Extensions, NewExtensions]),
+    ct:log("Extensions ~p~n, NewExtensions: ~p~n", [Extensions, NewExtensions]),
 
     NewDerCert = public_key:pkix_sign(NewOTPTbsCert, Key),
     ssl_test_lib:der_to_pem(NewCertFile, [{'Certificate', NewDerCert, not_encrypted}]),
@@ -828,9 +832,16 @@ unknown_server_ca_fail(Config) when is_list(Config) ->
 					       [{verify, verify_peer},
 						{verify_fun, FunAndState}
 						| ClientOpts]}]),
+    receive
+	{Server, {error, {tls_alert, "unknown ca"}}} ->
+	    receive
+		{Client, {error, {tls_alert, "unknown ca"}}} ->
+		    ok;
+		{Client, {error, closed}} ->
+		    ok
+	    end
+    end.
 
-    ssl_test_lib:check_result(Server, {error, {tls_alert, "unknown ca"}},
-			      Client, {error, {tls_alert, "unknown ca"}}).
 
 %%--------------------------------------------------------------------
 unknown_server_ca_accept_verify_none() ->
@@ -955,10 +966,10 @@ client_msg(Client, ClientMsg) ->
 	{Client, ClientMsg} ->
 	    ok;
 	{Client, {error,closed}} ->
-	    ct:print("client got close"),
+	    ct:log("client got close"),
 	    ok;
 	{Client, {error, Reason}} ->
-	    ct:print("client got econnaborted: ~p", [Reason]),
+	    ct:log("client got econnaborted: ~p", [Reason]),
 	    ok;
 	Unexpected ->
 	    ct:fail(Unexpected)
@@ -968,10 +979,10 @@ server_msg(Server, ServerMsg) ->
 	{Server, ServerMsg} ->
 	    ok;
 	{Server, {error,closed}} ->
-	    ct:print("server got close"),
+	    ct:log("server got close"),
 	    ok;
 	{Server, {error, Reason}} ->
-	    ct:print("server got econnaborted: ~p", [Reason]),
+	    ct:log("server got econnaborted: ~p", [Reason]),
 	    ok;
 	Unexpected ->
 	    ct:fail(Unexpected)

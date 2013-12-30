@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
@@ -29,6 +29,85 @@
     <file>notes.xml</file>
   </header>
   <p>This document describes the changes made to the Erl_interface application.</p>
+
+<section><title>Erl_Interface 3.7.15</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Silence warnings (Thanks to Anthony Ramine)</p>
+          <p>
+	    Own Id: OTP-11517</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erl_Interface 3.7.14</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Introduced functionality for inspection of system and
+	    build configuration.</p>
+          <p>
+	    Own Id: OTP-11196</p>
+        </item>
+        <item>
+          <p>
+	    Header and library files from ic and erl_interface are
+	    now installed into usr/{include,lib}. Note that these
+	    directories are unversioned, so the latest installed
+	    version will be the one in the directory.</p>
+          <p>
+	    Own Id: OTP-11284</p>
+        </item>
+        <item>
+          <p>
+	    Fix location of true binary under Mac OSX. Thanks to
+	    Simon Cornish.</p>
+          <p>
+	    Own Id: OTP-11289</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erl_Interface 3.7.13</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    A guard was added to check if file descriptor is valid
+	    before closing it.</p>
+          <p>
+	    Own Id: OTP-11167</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erl_Interface 3.7.12</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Superfluous trailing comma in enum erlang_char_encoding
+	    causing compile error for g++ with --pedantic option.</p>
+          <p>
+	    Own Id: OTP-10913 Aux Id: seq12264 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
 
 <section><title>Erl_Interface 3.7.11</title>
 
@@ -230,7 +309,7 @@
         <item>
           <p>
 	    Initialize <c>to</c> and <c>to_name</c> in
-	    <c>erl_receive_msg</c>. (Thanks to Göran Larsson)</p>
+	    <c>erl_receive_msg</c>. (Thanks to GÃ¶ran Larsson)</p>
           <p>
 	    Own Id: OTP-9241</p>
         </item>

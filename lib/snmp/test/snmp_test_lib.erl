@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2002-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2013. All Rights Reserved.
 %%
 %% The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -435,7 +435,7 @@ crypto_start() ->
     end.
  
 crypto_support() ->
-    crypto_support([md5_mac_96, sha_mac_96], []).
+    crypto_support([md5, sha], []).
  
 crypto_support([], []) ->
     yes;
@@ -450,12 +450,7 @@ crypto_support([Func|Funcs], Acc) ->
     end.
  
 is_crypto_supported(Func) ->
-    %% The 'catch' handles the case when 'crypto' is
-    %% not present in the system (or not started).
-    case (catch lists:member(Func, crypto:info())) of
-        true -> true;
-        _ -> false
-    end.
+    snmp_misc:is_crypto_supported(Func). 
  
  
 %% ----------------------------------------------------------------

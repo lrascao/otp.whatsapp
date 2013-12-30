@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2009. All Rights Reserved.
+ * Copyright Ericsson AB 2009-2013. All Rights Reserved.
  * 
  * The contents of this file are subject to the Erlang Public License,
  * Version 1.1, (the "License"); you may not use this file except in
@@ -30,6 +30,14 @@
     (s)->zalloc = erl_zlib_zalloc_callback; \
     (s)->zfree = erl_zlib_zfree_callback;   \
   } while (0)
+
+/*
+ * Chunked interface, used by term_to_binary among others.
+ */
+int ZEXPORT erl_zlib_deflate_start(z_stream *streamp, const Bytef* source, 
+				   uLong sourceLen, int level);
+int ZEXPORT erl_zlib_deflate_chunk(z_stream *streamp, Bytef* dest, uLongf* destLen);
+int ZEXPORT erl_zlib_deflate_finish(z_stream *streamp);
 
 /* Use instead of compress
 */

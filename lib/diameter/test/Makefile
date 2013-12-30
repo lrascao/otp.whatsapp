@@ -1,4 +1,4 @@
-# 
+#
 # %CopyrightBegin%
 #
 # Copyright Ericsson AB 2010-2013. All Rights Reserved.
@@ -76,7 +76,7 @@ any: opt
 	$(MAKE) -i $(SUITES)
 
 clean:
-	rm -f $(TARGET_FILES) 
+	rm -f $(TARGET_FILES)
 	rm -f depend.mk coverspec
 
 realclean: clean
@@ -93,6 +93,11 @@ info:
 	@$(call list,HRL_FILES)
 	@echo
 	@$(call list,SUITES)
+	@echo
+	@echo erl = $(shell which erl)
+	@erl -noinput \
+	     -eval 'io:format("diameter = ~s~n", [code:lib_dir(diameter)])' \
+	     -s init stop
 	@echo ========================================
 
 help:
@@ -154,7 +159,7 @@ log:
 
 # ----------------------------------------------------
 # Release Targets
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 
 /%: % force
 	sed -f release.sed $< > "$(RELSYSDIR)$@"
