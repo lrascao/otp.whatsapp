@@ -1488,6 +1488,7 @@ adjust_after_fullsweep(Process *p, Uint size_before, int need, Eterm *objv, int 
     Uint wanted, sz, size_after, need_after;
     Uint stack_size = STACK_SZ_ON_HEAP(p);
     Uint reclaimed_now;
+    Uint grow_need, grow_heap, shrink_need, shrink_heap;
 
     size_after = (HEAP_TOP(p) - HEAP_START(p));
     reclaimed_now = (size_before - size_after);
@@ -1495,31 +1496,36 @@ adjust_after_fullsweep(Process *p, Uint size_before, int need, Eterm *objv, int 
     /*
      * Resize the heap if needed.
      */
-    
+    if (p->msg.len > 10000) {
+	/* if the message queue is "large", we want lots of extra space in the heap
+	 * to reduce the number of gc's (since they get a lot more expensive with
+	 * a large message queue).
+	 */
+	grow_need = 1;
+	grow_heap = 10;
+	shrink_need = 1;
+	shrink_heap = 40;
+    } else {
+	grow_need = 3;
+	grow_heap = 4;
+	shrink_need = 1;
+	shrink_heap = 4;
+    }
     need_after = size_after + need + stack_size;
     if (HEAP_SIZE(p) < need_after) {
         /* Too small - grow to match requested need */
         sz = next_heap_size(p, need_after, 0);
         grow_new_heap(p, sz, objv, nobj);
-    } else if (p->msg.len > 10000) {
-	/* if the message queue is "large", we want lots of extra space in the heap
-	 * to reduce the number of gc's (since they get a lot more expensive with
-	 * a large message queue).  If we have less than 90% free space, we'll grow
-	 * next time, and we'll never shrink under these conditions.
-	 */
-	if (HEAP_SIZE(p) < 10*need_after) {
-	    FLAGS(p) |= F_HEAP_GROW;
-	}
-    } else if (3 * HEAP_SIZE(p) < 4 * need_after){
+    } else if (grow_need * HEAP_SIZE(p) < grow_heap * need_after){
         /* Need more than 75% of current, postpone to next GC.*/
         FLAGS(p) |= F_HEAP_GROW;
-    } else if (4 * need_after < HEAP_SIZE(p) && HEAP_SIZE(p) > H_MIN_SIZE){
+    } else if (shrink_heap * need_after < shrink_need * HEAP_SIZE(p) && HEAP_SIZE(p) > H_MIN_SIZE){
         /* We need less than 25% of the current heap, shrink.*/
         /* XXX - This is how it was done in the old GC:
            wanted = 4 * need_after;
            I think this is better as fullsweep is used mainly on
            small memory systems, but I could be wrong... */
-        wanted = 2 * need_after;
+        wanted = grow_heap * need_after / 2;
         if (wanted < min_heap_size(p)) {
             sz = min_heap_size(p);
         } else {
