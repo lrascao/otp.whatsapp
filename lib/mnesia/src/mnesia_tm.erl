@@ -570,23 +570,27 @@ tab_to_frag_num ([_ | S]) ->
     tab_to_frag_num(S).
 
 %% Process items in fifo order
-process_dirty_queue(Tab, [Item | Queue]) ->
-    Queue2 = process_dirty_queue(Tab, Queue),
+process_dirty_queue(Tab, Queue) ->
+    QLen = length(Queue),
+    verbose("~p start processing dirty queue tab=~p qlen=~b~n", [self(), Tab, QLen]),
+    do_process_dirty_queue(Tab, lists:reverse(Queue), []).
+
+do_process_dirty_queue (Tab, [Item | Queue], Requeue) ->
     case Item of
 	{async_dirty, Tid, Commit, Tab} ->
 	    do_async_dirty(Tid, Commit, Tab),
-	    Queue2;
+	    do_process_dirty_queue(Tab, Queue, Requeue);
 	{sync_dirty, From, Tid, Commit, Tab} ->
 	    do_sync_dirty(From, Tid, Commit, Tab),
-	    Queue2;
+	    do_process_dirty_queue(Tab, Queue, Requeue);
 	{Tab, unblock_me, From} ->
 	    reply(From, unblocked),
-	    Queue2;
+    	    do_process_dirty_queue(Tab, Queue, Requeue);
 	_ ->
-	    [Item | Queue2]
+	    do_process_dirty_queue(Tab, Queue, [Item | Requeue])
     end;
-process_dirty_queue(_Tab, []) ->
-    [].
+do_process_dirty_queue(_Tab, [], Requeue) ->
+    Requeue.
 
 prepare_pending_coordinators([{Tid, [Store | _Etabs]} | Coords], IgnoreNew) ->
     case catch ?ets_lookup(Store, pending) of
