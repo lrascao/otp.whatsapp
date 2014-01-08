@@ -220,7 +220,7 @@ do_get_network_copy(Tab, Reason, Ns, Storage, Cs) ->
 		    set({Tab, load_node}, Node),
 		    set({Tab, load_reason}, Reason),
 		    mnesia_controller:i_have_tab(Tab),
-		    verbose("Table ~p copied from ~p to ~p (~b entries)~n", [Tab, Node, node(), mnesia:table_info(Tab, size)]),
+		    verbose("Table ~p copied from ~p (~b entries)~n", [Tab, Node, mnesia:table_info(Tab, size)]),
 		    {loaded, ok};
 		Err = {error, _} when element(1, Reason) == dumper ->
 		    {not_loaded,Err};
@@ -489,7 +489,7 @@ init_table(Tab, _, Fun, _DetsInfo,_) ->
 
 finish_copy(Storage,Tab,Cs,SenderPid,DatBin,OrigTabRec,TabEvents) ->
     TabRef = {Storage, Tab},
-    dbg_out("Finish table copy ~p: ~b queued table events~n", [Tab, length(TabEvents)]),
+    verbose("Finish table copy ~p: ~b queued table events~n", [Tab, length(TabEvents)]),
     handle_table_events(TabRef, Cs#cstruct.record_name, TabEvents),
     subscr_receiver(TabRef, Cs#cstruct.record_name),
     case handle_last(TabRef, Cs#cstruct.type, DatBin) of
@@ -550,50 +550,22 @@ ets_init_table_continue(Table, {List, Fun}) when is_list(List), is_function(Fun)
     end;
 ets_init_table_continue(_Table, Error) ->
     exit(Error).
-
 ets_init_table_sub(_Table, []) ->
     true;
 ets_init_table_sub(Table, [H|T]) ->
     ets:insert(Table, H),
     ets_init_table_sub(Table, T).
 
-handle_table_events (TabRef = {_, Tab}, Tab, TabEvents) ->
-    handle_table_events_1(TabRef, TabEvents);
-handle_table_events (TabRef = {_, _Tab}, RecName, TabEvents) ->
-    handle_table_events_2(TabRef, RecName, TabEvents).
-
-handle_table_events_1 (_TabRef, []) ->
+handle_table_events (_TabRef, _RecName, []) ->
     ok;
-handle_table_events_1 (TabRef, [{Op, Val, _Tid} | Tail]) ->
-    handle_event(TabRef, Op, Val),
-    handle_table_events_1(TabRef, Tail).
+handle_table_events (TabRef, RecName, [Event | Tail]) ->
+    handle_table_event(TabRef, Event, RecName),
+    handle_table_events(TabRef, RecName, Tail).
 
-handle_table_events_2 (_TabRef, _RecName, []) ->
-    ok;
-handle_table_events_2 (TabRef, RecName, [{Op, Val, _Tid} | Tail]) ->
-    handle_event(TabRef, Op, setelement(1, Val, RecName)),
-    handle_table_events_2(TabRef, RecName, Tail).
-
-    
-subscr_receiver(TabRef = {_, Tab}, RecName) ->
+subscr_receiver(TabRef, RecName) ->
     receive
-	{mnesia_table_event, {Op, Val, _Tid}}
-	  when element(1, Val) =:= Tab ->
-	    if
-		Tab == RecName ->
-		    handle_event(TabRef, Op, Val);
-		true ->
-		    handle_event(TabRef, Op, setelement(1, Val, RecName))
-	    end,
-	    subscr_receiver(TabRef, RecName);
-
-	{mnesia_table_event, {Op, Val, _Tid}} when element(1, Val) =:= schema ->
-	    %% clear_table is faked via two schema events
-	    %% a schema record delete and a write
-	    case Op of
-		delete -> handle_event(TabRef, clear_table, {Tab, all});
-		_ -> ok
-	    end,
+	{mnesia_table_event, Event} ->
+	    handle_table_event(TabRef, Event, RecName),
 	    subscr_receiver(TabRef, RecName);
 
 	{'EXIT', Pid, Reason} ->
@@ -601,6 +573,18 @@ subscr_receiver(TabRef = {_, Tab}, RecName) ->
 	    subscr_receiver(TabRef, RecName)
     after 0 ->
 	    ok
+    end.
+
+handle_table_event (TabRef = {_, Tab}, {Op, Val, _Tid}, Tab) when element(1, Val) =:= Tab ->
+    handle_event(TabRef, Op, Val);
+handle_table_event (TabRef = {_, Tab}, {Op, Val, _Tid}, RecName) when element(1, Val) =:= Tab ->
+    handle_event(TabRef, Op, setelement(1, Val, RecName));
+handle_table_event (TabRef = {_, Tab}, {Op, Val, _Tid}, _RecName) when element(1, Val) =:= schema ->
+    %% clear_table is faked via two schema events
+    %% a schema record delete and a write
+    case Op of
+	delete -> handle_event(TabRef, clear_table, {Tab, all});
+	_ -> ok
     end.
 
 handle_event(TabRef, write, Rec) ->
