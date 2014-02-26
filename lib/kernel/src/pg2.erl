@@ -26,6 +26,9 @@
 -export([sync/0]).
 -export([local_monitor/0, get_local_groups/0]).
 
+-define(TRANS_LOCK_RETRIES, 5).
+-define(TRANS_CALL_TIMEOUT, 30000).
+
 %%% As of R13B03 monitors are used instead of links.
 
 %%%
@@ -50,11 +53,7 @@ create(Name) ->
     ensure_started(),
     case ets:member(pg2_table, {group, Name}) of
         false ->
-            global:trans({{?MODULE, Name}, self()},
-                         fun() ->
-                                 gen_server:multi_call(?MODULE, {create, Name})
-                         end),
-            ok;
+            trans(Name, {create, Name});
         true ->
             ok
     end.
@@ -63,10 +62,7 @@ create(Name) ->
 
 delete(Name) ->
     ensure_started(),
-    global:trans({{?MODULE, Name}, self()},
-                 fun() ->
-                         gen_server:multi_call(?MODULE, {delete, Name})
-                 end),
+    trans(Name, {delete, Name}),
     ok.
 
 -spec join(Name, Pid :: pid()) -> 'ok' | {'error', {'no_such_group', Name}}
@@ -78,12 +74,7 @@ join(Name, Pid) when is_pid(Pid) ->
         false ->
             {error, {no_such_group, Name}};
         true ->
-            global:trans({{?MODULE, Name}, self()},
-                         fun() ->
-                                 gen_server:multi_call(?MODULE,
-                                                       {join, Name, Pid})
-                         end),
-            ok
+	    trans(Name, {join, Name, Pid})
     end.
 
 -spec leave(Name, Pid :: pid()) -> 'ok' | {'error', {'no_such_group', Name}}
@@ -95,12 +86,7 @@ leave(Name, Pid) when is_pid(Pid) ->
         false ->
             {error, {no_such_group, Name}};
         true ->
-            global:trans({{?MODULE, Name}, self()},
-                         fun() ->
-                                 gen_server:multi_call(?MODULE,
-                                                       {leave, Name, Pid})
-                         end),
-            ok
+	    trans(Name, {leave, Name, Pid})
     end.
 
 -spec get_members(Name) -> [pid()] | {'error', {'no_such_group', Name}}
@@ -224,8 +210,8 @@ handle_call(Request, From, S) ->
                   State :: state()) -> {'noreply', state()}
       when Name :: name().
 
-handle_cast({exchange, _Node, List}, S) ->
-    store(List),
+handle_cast({exchange, Node, List}, S) ->
+    store(List, Node),
     {noreply, S};
 handle_cast(_, S) ->
     %% Ignore {del_member, Name, Pid}.
@@ -244,10 +230,10 @@ handle_info({'DOWN', MonitorRef, process, Pid, _Info}, S) ->
 	   end,
     {noreply, NewS};
 handle_info({nodeup, Node}, S) ->
-    gen_server:cast({?MODULE, Node}, {exchange, node(), all_members()}),
+    gen_server:cast({?MODULE, Node}, {exchange, node(), get_exchange_members(Node)}),
     {noreply, S};
 handle_info({new_pg2, Node}, S) ->
-    gen_server:cast({?MODULE, Node}, {exchange, node(), all_members()}),
+    gen_server:cast({?MODULE, Node}, {exchange, node(), get_exchange_members(Node)}),
     {noreply, S};
 handle_info(_, S) ->
     {noreply, S}.
@@ -280,12 +266,40 @@ terminate(_Reason, _S) ->
 %%% {{pid, Pid, Name}}
 %%%    Pid is a member of group Name.
 
-store(List) ->
-    _ = [(assure_group(Name)
-          andalso
-          [join_group(Name, P) || P <- Members -- group_members(Name)]) ||
-            [Name, Members] <- List],
-    ok.
+trans(Name, Op) ->
+    Nodes = [node() | nodes()],
+    case global:trans({{?MODULE, Name}, self()},
+		      fun() ->
+			      gen_server:multi_call(Nodes, ?MODULE, Op, ?TRANS_CALL_TIMEOUT)
+		      end,
+		      Nodes,
+		      ?TRANS_LOCK_RETRIES) of
+	aborted ->
+	    error_logger:warning_msg("Unable to set global lock for pg2 transaction: ~1000p.  Retrying ...", [Op]),
+	    trans(Name, Op);
+	{_Replies, []} ->
+	    ok;
+	{_Replies, BadNodes} ->
+	    error_logger:warning_msg("pg2 transaction (~w) timed out on node(s): ~w", [Op, BadNodes]),
+	    ok
+    end.
+
+store(List, Node) ->
+    store_groups(List, Node).
+
+store_groups([], _Node) ->
+    ok;
+store_groups([[Name, Members] | List], Node) ->
+    case assure_group(Name) of
+	true ->
+	    Stored = group_members(Name),
+	    NodeStored = [ P || P <- Stored, node(P) =:= Node ],
+	    [ join_group(Name, P) || P <- Members -- Stored ],
+	    [ leave_group(Name, P) || P <- NodeStored -- Members ];
+	_ ->
+	    ok
+    end,
+    store_groups(List, Node).
 
 assure_group(Name) ->
     Key = {group, Name},
@@ -308,9 +322,6 @@ member_died(Ref) ->
     _ = [leave_group(Name, P) || 
             Name <- Names,
             P <- member_in_group(Pid, Name)],
-    %% Kept for backward compatibility with links. Can be removed, eventually.
-    _ = [gen_server:abcast(nodes(), ?MODULE, {del_member, Name, Pid}) ||
-            Name <- Names],
     Names.
 
 join_group(Name, Pid) ->
@@ -371,8 +382,8 @@ sync_group_members (Name) ->
     LMembers = match_local_group_members(Name),
     true = ets:insert(pg2_table, {{local_group_members, Name}, LMembers}).
 
-all_members() ->
-    [[G, group_members(G)] || G <- all_groups()].
+get_exchange_members(Node) ->
+    [ [G, [ P || P <- group_members(G), node(P) =:= node() orelse node(P) =:= Node ]] || G <- all_groups() ].
 
 group_members(Name) ->
     case ets:lookup(pg2_table, {group_members, Name}) of
