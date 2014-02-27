@@ -23,7 +23,7 @@
 -export([get_closest_pid/1, which_groups/0]).
 -export([start/0,start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,
          terminate/2]).
--export([sync/0]).
+-export([sync/0, resync/0, global_resync/0]).
 -export([local_monitor/0, get_local_groups/0]).
 
 -define(TRANS_LOCK_RETRIES, 5).
@@ -147,6 +147,12 @@ sync () ->
 local_monitor () ->
     gen_server:call(?MODULE, {local_monitor, self()}).
 
+resync () ->
+    ?MODULE ! resync.
+
+global_resync () ->
+    gen_server:call(?MODULE, global_resync).
+
 %%%
 %%% Callback functions from gen_server
 %%%
@@ -199,18 +205,25 @@ handle_call({local_monitor, Pid}, _From, S) ->
 			  {ok, S#state{local_monitors = [Pid | S#state.local_monitors]}}
 		  end,
     {reply, Res, NewS};
+handle_call(global_resync, _From, S) ->
+    Nodes = [node() | nodes()],
+    [ {?MODULE, N} ! resync || N <- Nodes ],
+    error_logger:warning_msg("pg2 resync request sent to ~b node(s)", [length(Nodes)]),
+    {reply, {ok, length(Nodes)}, S};
 handle_call(Request, From, S) ->
     error_logger:warning_msg("The pg2 server received an unexpected message:\n"
                              "handle_call(~p, ~p, _)\n", 
                              [Request, From]),
     {noreply, S}.
 
--spec handle_cast(Cast :: {'exchange', node(), Names :: [[Name,...]]}
-                        | {'del_member', Name, Pid :: pid()},
+-spec handle_cast(Cast :: {'exchange', node(), Names :: [[Name,...]]},
                   State :: state()) -> {'noreply', state()}
       when Name :: name().
 
 handle_cast({exchange, Node, List}, S) ->
+    store(List, Node),
+    {noreply, S};
+handle_cast({resync_exchange, Node, List}, S) ->
     store(List, Node),
     {noreply, S};
 handle_cast(_, S) ->
@@ -234,6 +247,11 @@ handle_info({nodeup, Node}, S) ->
     {noreply, S};
 handle_info({new_pg2, Node}, S) ->
     gen_server:cast({?MODULE, Node}, {exchange, node(), get_exchange_members(Node)}),
+    {noreply, S};
+handle_info(resync, S) ->
+    Nodes = nodes(),
+    [ gen_server:cast({?MODULE, N}, {resync_exchange, node(), get_exchange_members(N)}) || N <- Nodes ],
+    error_logger:warning_msg("pg2 resync requested: resync_exchange sent to ~b node(s)", [length(Nodes)]),
     {noreply, S};
 handle_info(_, S) ->
     {noreply, S}.
