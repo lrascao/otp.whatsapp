@@ -24,6 +24,7 @@
 -export([start/0,start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,
          terminate/2]).
 -export([sync/0, resync/0, global_resync/0]).
+-export([verify_cluster_state/0, verify_cluster_state/1, get_node_state/4]).
 -export([local_monitor/0, get_local_groups/0]).
 
 -define(TRANS_LOCK_RETRIES, 5).
@@ -223,9 +224,6 @@ handle_call(Request, From, S) ->
 handle_cast({exchange, Node, List}, S) ->
     store(List, Node),
     {noreply, S};
-handle_cast({resync_exchange, Node, List}, S) ->
-    store(List, Node),
-    {noreply, S};
 handle_cast(_, S) ->
     %% Ignore {del_member, Name, Pid}.
     {noreply, S}.
@@ -250,8 +248,8 @@ handle_info({new_pg2, Node}, S) ->
     {noreply, S};
 handle_info(resync, S) ->
     Nodes = nodes(),
-    [ gen_server:cast({?MODULE, N}, {resync_exchange, node(), get_exchange_members(N)}) || N <- Nodes ],
-    error_logger:warning_msg("pg2 resync requested: resync_exchange sent to ~b node(s)", [length(Nodes)]),
+    [ gen_server:cast({?MODULE, N}, {exchange, node(), get_exchange_members(N)}) || N <- Nodes ],
+    error_logger:warning_msg("pg2 resync requested: state sent to ~b node(s)", [length(Nodes)]),
     {noreply, S};
 handle_info(_, S) ->
     {noreply, S}.
@@ -295,11 +293,16 @@ trans(Name, Op) ->
 	aborted ->
 	    error_logger:warning_msg("Unable to set global lock for pg2 transaction: ~1000p.  Retrying ...", [Op]),
 	    trans(Name, Op);
-	{_Replies, []} ->
-	    ok;
 	{_Replies, BadNodes} ->
-	    error_logger:warning_msg("pg2 transaction (~w) timed out on node(s): ~w", [Op, BadNodes]),
-	    ok
+	    if length(BadNodes) > 0 ->
+		   error_logger:warning_msg("pg2 transaction (~w) timed out on node(s): ~w", [Op, BadNodes]);
+	       true ->
+		   ok
+	    end,
+	    NewNodes = [node () | nodes()] -- Nodes,
+	    %% Send full state to nodes which might have shown up after the Nodes list was obtained above.
+	    %% Also attempt to send full state to nodes which didn't respond to the transaction.
+	    [ ?MODULE ! {nodeup, N} || N <- NewNodes ++ BadNodes ]
     end.
 
 store(List, Node) ->
@@ -479,3 +482,90 @@ notify (Updates, S) ->
 
 get_local_groups () ->
     ets:select(pg2_table, [{{{local_group_members, '$1'}, '$2'}, [{'>', {'length', '$2'}, 0}], ['$1']}]).
+
+verify_cluster_state () ->
+    verify_cluster_state('_').
+
+verify_cluster_state (Group) ->
+    Nodes = [node() | nodes()],
+    check_node_state(Nodes, get_node_state(Group, Nodes)).
+
+get_node_state (Group, Nodes) when is_list(Nodes) ->
+    Tab = ets:new(pg2_state, [ordered_set, public, {write_concurrency, true}]),
+    lists:foreach(fun (N) ->
+			   spawn(?MODULE, get_node_state, [Group, N, Tab, self()])
+		  end,
+		  Nodes),
+    wait_node_state(Nodes, Tab).
+
+wait_node_state ([], Tab) ->
+    Tab;
+wait_node_state ([N | Nodes], Tab) ->
+    receive
+	{get_node_state, N} ->
+	    wait_node_state(Nodes, Tab)
+    end.
+
+get_node_state (Group, Node, Tab, Proc) ->
+    lists:foreach(fun ({{local_group_members, G}, M}) ->
+			   lists:foreach(fun (GM) ->
+						  ets:insert_new(Tab, {{local_group_member, G, GM}})
+					 end,
+					 M)
+		  end,
+		  rpc:call(Node, ets, match_object, [pg2_table, {{local_group_members, Group}, '_'}])),
+    lists:foreach(fun ({{group_members, G}, M}) ->
+			   lists:foreach(fun (GM) ->
+						  ets:insert(Tab, {{group, G}}),
+						  ets:insert(Tab, {{group, G, Node}}),
+						  ets:insert_new(Tab, {{group_member, G, Node, GM}})
+					 end,
+					 M)
+		  end,
+		  rpc:call(Node, ets, match_object, [pg2_table, {{group_members, Group}, '_'}])),
+    Proc ! {get_node_state, Node}.
+
+check_node_state (Nodes, Tab) when is_list(Nodes) ->
+    AllGroups = [ G || {{group, G}} <- ets:match_object(Tab, {{group, '_'}}) ],
+    NumMembers = lists:foldl(fun (Group, N) ->
+				      GroupMembers = [ M || {{local_group_member, _G, M}} <- ets:match_object(Tab, {{local_group_member, Group, '_'}}) ],
+				      ets:insert_new(Tab, {{group_members, Group}, GroupMembers}),
+				      N + length(GroupMembers)
+			     end,
+			     0,
+			     AllGroups),
+    NodeDiffs = lists:foldl(fun (N, Diffs) ->
+				     case check_node_state(N, Tab, AllGroups) of
+					 {[], [], []} ->
+					     Diffs;
+					 {Missing, Extra, MemberDiffs} ->
+					     [{N, Missing, Extra, MemberDiffs} | Diffs]
+				     end
+			    end,
+			    [],
+			    Nodes),
+    [{nodes, length(Nodes)},
+     {groups, length(AllGroups)},
+     {members, NumMembers},
+     {diffs, NodeDiffs}].
+
+check_node_state (Node, Tab, AllGroups) ->
+    NodeGroups = [ G || {{group, G, _N}} <- ets:match_object(Tab, {{group, '_', Node}}) ],
+    NodeDiffs = lists:foldl(fun (Group, NDiffs) ->
+				     GroupMembers = case ets:lookup(Tab, {group_members, Group}) of
+							[{{group_members, Group}, GM}] ->
+							    GM;
+							_ ->
+							    []
+						    end,
+				     NodeGroupMembers = [ M || {{group_member, _Group, _Node, M}} <- ets:match_object(Tab, {{group_member, Group, Node, '_'}}) ],
+				     case {GroupMembers -- NodeGroupMembers, NodeGroupMembers -- GroupMembers} of
+					 {[], []} ->
+					     NDiffs;
+					 {Missing, Extra} ->
+					     [{Group, [ { node(P), P } || P <- Missing ], [ { node(P), P } || P <- Extra ]} | NDiffs]
+				     end
+			    end,
+			    [],
+			    NodeGroups),
+    {AllGroups -- NodeGroups, NodeGroups -- AllGroups, NodeDiffs}.
