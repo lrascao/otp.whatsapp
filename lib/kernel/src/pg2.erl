@@ -303,7 +303,8 @@ trans(Name, Op) ->
 	    %% Send full state to nodes which might have shown up after the Nodes list was obtained above.
 	    %% Also attempt to send full state to nodes which didn't respond to the transaction.
 	    [ ?MODULE ! {nodeup, N} || N <- NewNodes ++ BadNodes ]
-    end.
+    end,
+    ok.
 
 store(List, Node) ->
     store_groups(List, Node).
