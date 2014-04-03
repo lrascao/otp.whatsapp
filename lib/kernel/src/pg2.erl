@@ -315,9 +315,7 @@ store_groups([[Name, Members] | List], Node) ->
     case assure_group(Name) of
 	true ->
 	    Stored = group_members(Name),
-	    NodeStored = [ P || P <- Stored, node(P) =:= Node ],
-	    [ join_group(Name, P) || P <- Members -- Stored ],
-	    [ leave_group(Name, P) || P <- NodeStored -- Members ];
+	    [ join_group(Name, P) || P <- Members -- Stored ];
 	_ ->
 	    ok
     end,
