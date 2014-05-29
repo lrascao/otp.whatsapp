@@ -273,8 +273,15 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames,SetupTime) ->
 		{port, TcpPort, Version} ->
 		    ?trace("port_please(~p) -> version ~p~n", 
 			   [Node,Version]),
+		    Bind = case application:get_env(kernel, inet_dist_use_interface) of
+			       {ok, BindIp} ->
+				   [{ip, BindIp}];
+			       _ ->
+				   []
+			   end,
 		    dist_util:reset_timer(Timer),
-		    case inet_tcp:connect(Ip, TcpPort, 
+		    case inet_tcp:connect(Ip, TcpPort,
+					  Bind ++ 
 					  [{active, false}, 
 					   {packet,2}]) of
 			{ok, Socket} ->

@@ -195,17 +195,28 @@ get_epmd_port() ->
 %%
 %% Epmd socket
 %%
-open() -> open({127,0,0,1}).  % The localhost IP address.
+open() ->
+    gen_tcp:connect({127,0,0,1}, get_epmd_port(), [inet]).
 
 open({A,B,C,D}=EpmdAddr) when ?ip(A,B,C,D) ->
-    gen_tcp:connect(EpmdAddr, get_epmd_port(), [inet]);
+    connect(EpmdAddr, [inet], infinity);
 open({A,B,C,D,E,F,G,H}=EpmdAddr) when ?ip6(A,B,C,D,E,F,G,H) ->
-    gen_tcp:connect(EpmdAddr, get_epmd_port(), [inet6]).
+    connect(EpmdAddr, [inet6], infinity).
 
 open({A,B,C,D}=EpmdAddr, Timeout) when ?ip(A,B,C,D) ->
-    gen_tcp:connect(EpmdAddr, get_epmd_port(), [inet], Timeout);
+    connect(EpmdAddr, [inet], Timeout);
 open({A,B,C,D,E,F,G,H}=EpmdAddr, Timeout) when ?ip6(A,B,C,D,E,F,G,H) ->
-    gen_tcp:connect(EpmdAddr, get_epmd_port(), [inet6], Timeout).
+    connect(EpmdAddr, [inet6], Timeout).
+
+connect (EpmdAddr, Opts, Timeout) ->
+    ConnectOpts = case application:get_env(kernel, inet_dist_use_interface) of
+ 		      {ok, Ip} ->
+ 			  Opts ++ [{ip, Ip}];
+ 		      _ ->
+ 			  Opts
+ 		  end,
+    gen_tcp:connect(EpmdAddr, get_epmd_port(), ConnectOpts, Timeout).
+    
 
 close(Socket) ->
     gen_tcp:close(Socket).
