@@ -39,6 +39,12 @@ val(Var) ->
 	Value -> Value
     end.
 
+val(Var, Default) ->
+    case ?catch_val(Var) of
+	{'EXIT', _Reason} -> Default;
+	Value -> Value
+    end.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Load a table from local disc
 
@@ -705,7 +711,7 @@ calc_nokeys(Storage, Tab) ->
     Key = mnesia_lib:db_first(Storage, Tab),
     Recs = mnesia_lib:db_get(Storage, Tab, Key),
     BinSize = size(term_to_binary(Recs)),
-    (?MAX_TRANSFER_SIZE div BinSize) + 1.
+    (val(send_max_transfer_size, ?MAX_TRANSFER_SIZE) div BinSize) + 1.
 
 send_table(Pid, Tab, RemoteS) ->
     case ?catch_val({Tab, storage_type}) of
@@ -799,11 +805,12 @@ update_where_to_write([H|T], Tab, AddNode) ->
 send_more(Pid, N, Chunk, DataState, Tab) ->
     receive
 	{NewPid, more} ->
-	    case send_packet(N - 1, NewPid, Chunk, DataState) of
+	    MaxPackets = val(send_max_packets, ?MAX_NOPACKETS),
+	    case send_packet(N - 1, MaxPackets, NewPid, Chunk, DataState) of
 		New when is_integer(New) ->
 		    New - 1;
 		NewData ->
-		    send_more(NewPid, ?MAX_NOPACKETS, Chunk, NewData, Tab)
+		    send_more(NewPid, MaxPackets, Chunk, NewData, Tab)
 	    end;
 	{_NewPid, {old_protocol, Tab}} ->
 	    Storage =  val({Tab, storage_type}),
@@ -853,20 +860,20 @@ compression_level() ->
 	Val -> Val
     end.
 
-send_packet(N, Pid, _Chunk, '$end_of_table') ->
+send_packet(N, _Max, Pid, _Chunk, '$end_of_table') ->
     Pid ! {self(), no_more},
     N;
-send_packet(N, Pid, Chunk, {[], Cont}) ->
-    send_packet(N, Pid, Chunk, Chunk(Cont));
-send_packet(N, Pid, Chunk, {Recs, Cont}) when N < ?MAX_NOPACKETS ->
+send_packet(N, Max, Pid, Chunk, {[], Cont}) ->
+    send_packet(N, Max, Pid, Chunk, Chunk(Cont));
+send_packet(N, Max, Pid, Chunk, {Recs, Cont}) when N < Max ->
     case compression_level() of
 	0 ->
 	    Pid ! {self(), {more, Recs}};
 	Level ->
 	    Pid ! {self(), {more_z, zlib_compress(Recs, Level)}}
     end,
-    send_packet(N+1, Pid, Chunk, Chunk(Cont));
-send_packet(_N, _Pid, _Chunk, DataState) ->
+    send_packet(N+1, Max, Pid, Chunk, Chunk(Cont));
+send_packet(_N, _Max, _Pid, _Chunk, DataState) ->
     DataState.
 
 finish_copy(Pid, Tab, Storage, RemoteS) ->
