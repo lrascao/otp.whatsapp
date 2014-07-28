@@ -1905,19 +1905,29 @@ reply(ReplyTo, Reply) ->
 add_worker(Worker = #dump_log{}, State) ->
     InitBy = Worker#dump_log.initiated_by,
     Queue = State#state.dumper_queue,
-    {Status, Queue2} =
-        case lists:keymember(InitBy, #dump_log.initiated_by, Queue) of
-            true when Worker#dump_log.opt_reply_to == undefined ->
-                %% The same threshold has been exceeded again,
-                %% before we have had the possibility to
-                %% process the older one.
-                DetectedBy = {dump_log, InitBy},
-                Event = {mnesia_overload, DetectedBy},
-                mnesia_lib:report_system_event(Event),
-                {true, Queue};
-            _ ->
-    		{false, Queue ++ [Worker]}
-        end,
+    Overload = if Worker#dump_log.opt_reply_to == undefined ->
+		      case lists:keymember(InitBy, #dump_log.initiated_by, Queue) of
+			  false when InitBy == write_threshold ->
+			      lists:keymember(time_threshold, #dump_log.initiated_by, Queue);
+			  false when InitBy == time_threshold ->
+			      lists:keymember(write_threshold, #dump_log.initiated_by, Queue);
+			  Else ->
+			      Else
+		      end;
+		  true ->
+		      false
+	       end,
+    {Status, Queue2} = if Overload ->
+			      %% The same threshold has been exceeded again,
+			      %% before we have had the possibility to
+			      %% process the older one.
+			      DetectedBy = {dump_log, InitBy},
+			      Event = {mnesia_overload, DetectedBy},
+			      mnesia_lib:report_system_event(Event),
+			      {true, Queue};
+			  true ->
+			      {false, Queue ++ [Worker]}
+		       end,
     mnesia_recover:log_dump_overload(Status),
     State2 = State#state{dumper_queue = Queue2},
     opt_start_worker(State2);
