@@ -65,7 +65,7 @@
 -define(ASYNC_DIRTY_TM_SENDER_TIMEOUT, 10000).
 -record(buffer_log, {fn, wf, wtxns=[], wtxnsize=0, newtxns=[]}).
 -define(BUFFER_LOG_WRITE_SIZE, 524288).
--define(BUFFER_MAX_LIST_LENGTH, 100000).
+-define(BUFFER_BACKLOG_THRESHOLD, 200000).
 -define(BUFFER_LOG_DRAINING_CUTOFF, 1000000).
 
 
@@ -2163,7 +2163,7 @@ check_remote_tm (Node) ->
 async_dirty_sender_loop (Node, Num, Parent, Mode) ->
     Timeout = case Mode of
 		  [] ->
-		      % normal mode: wait for txns to send through (non-blocking)
+		      % normal mode: wait for txns to forward (non-blocking sends)
 		      infinity;
 		  #buffer_log{wtxns=[], newtxns=[]} ->
 		      % buffered mode: wait for txns to write to buffer log
@@ -2172,7 +2172,7 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 		      % buffered mode: have txns to write to buffer log
 		      0;
 		  force ->
-		      % forced mode: wait for txns to send through (blocking)
+		      % forced mode: wait for txns to forward (blocking sends)
 		      infinity;
 		  _ ->
 		      % queued mode: retry sending queued txns after a brief wait
@@ -2183,14 +2183,17 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 		Buffered when is_list(Buffered) ->
 		    RemTxns = case send_buffer_log_try(Node, Buffered) of
 				  [] ->
+				      % sent all the queued txns; try the ones we just dequeued
 				      send_buffer_log_try(Node, Txns);
 				  Rem ->
+				      % add newly dequeued txns to remaining queue
 				      lists:append(Rem, Txns)
 			      end,
-		    if length(RemTxns) < ?BUFFER_MAX_LIST_LENGTH ->
+		    if length(RemTxns) < ?BUFFER_BACKLOG_THRESHOLD ->
+			   % continue to buffer in-memory
 			   RemTxns;
 		       true ->
-			   % need to start buffering
+			   % need to start buffering on disk
 			   LogName = node_num_to_async_dirty_tm_sender_log(Node, Num),
 			   LogFile = mnesia_lib:dir(atom_to_list(LogName)),
 			   case prim_file:open(LogFile, [raw, binary, append]) of
@@ -2207,24 +2210,31 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 			   end
 		    end;
 		#buffer_log{wtxns=undefined, newtxns=NewTxns} ->
+		    % sender is stopping, so we need to queue until it finishes so we don't overlap our sends
 		    Mode#buffer_log{newtxns=lists:append(NewTxns, Txns)};
 		#buffer_log{} ->
+		    % write new txns to buffer log
 		    append_buffer_log(Mode, Txns);
 		force ->
+		    % blocking send because buffering failed
 		    async_dirty_send(Node, Txns)
 	    end,
     Mode2 = case Msg of
 		undefined ->
+		    % no pending message
 		    Mode1;
 		{mnesia_down, Node} ->
 		    % our peer is going down
 		    unlink(Parent),
 		    exit(shutdown);
 		{buffer_drained, SenderPid} ->
+		    % the sender reached the drain threshold and is stopping
 		    verbose("ms~b:~s Drained async_dirty_sender buffer log (wtxns=~b newtxns=~b)", [Num, Node, length(Mode1#buffer_log.wtxns), length(Mode1#buffer_log.newtxns)]),
 		    SenderPid ! {buffer_drained_ack, self()},
+		    % queue up the txns that were being buffered for a log write and append the queued txns
 		    Mode1#buffer_log{wtxns=undefined, newtxns=lists:append(lists:reverse(Mode1#buffer_log.wtxns), Mode1#buffer_log.newtxns)}; 
 		{buffer_drained_ack, _Pid} ->
+		    % sender has stopped so we can send our queued transactions and resume in-memory buffering
 		    verbose("ms~b:~s Drained (ack) async_dirty_sender buffer log (newtxns=~b)", [Num, Node, length(Mode#buffer_log.newtxns)]),
 		    prim_file:truncate(Mode#buffer_log.wf),
 		    prim_file:close(Mode#buffer_log.wf),
@@ -2235,6 +2245,7 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 	    end,
     ?MODULE:async_dirty_sender_loop(Node, Num, Parent, Mode2).
 
+% dequeue all the txns in the message queue
 async_dirty_dequeue (Timeout, List) ->
     receive
 	{async_dirty, TmName, Txn} ->
@@ -2301,7 +2312,9 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
 			     end,
 		   async_dirty_buffer_sender(Parent, Node, Num, RF, RTxns, NewFilePos, NewMode);
 	       true ->
-		   verbose("Failure reading corrupted async_dirty_sender buffer log: ms~b:~s", [Num, Node]),
+		   {ok, EofPos} = prim_file:position(RF, {eof, 0}),
+		   verbose("Truncated read on async_dirty_sender buffer log: ms~b:~s (bytes=~b bufsize=~b size(buf)=~b pos=~b eof=~b)",
+			   [Num, Node, size(RBytes), BufSize, size(Buf), FilePos, EofPos]),
 		   exit(shutdown)
 	    end;
 	eof when Mode == running ->
@@ -2312,22 +2325,24 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
 	    receive
 		{buffer_drained_ack, _Pid} ->
 		    Parent ! {buffer_drained_ack, self()},
-		    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, stopped)
+		    prim_file:close(RF),
+		    verbose("ms~b:~s async_dirty_sender buffer log drained (log size=~b)", [Num, Node, FilePos]),
+		    exit(normal)
 	    after 100 ->
 		    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, Mode)
 	    end;
-	eof when Mode == stopped ->
-	    prim_file:close(RF),
-	    verbose("ms~b:~s async_dirty_sender buffer log drained (log size=~b)", [Num, Node, FilePos]),
-	    exit(normal);
 	RError ->
 	    verbose("ms~b:~s async_dirty_sender buffer log read error: ~1000p", [Num, Node, RError]),
 	    exit(shutdown)
     end;
 async_dirty_buffer_sender (Parent, Node, Num, RF, RTxns, FilePos, Mode) ->
     RemTxns = send_buffer_log_try(Node, RTxns),
-    if length(RemTxns) == 0 -> ok;
-       true -> timer:sleep(100)
+    if length(RemTxns) == 0 ->
+	   ok;
+       length(RemTxns) == length(RTxns) ->
+	   timer:sleep(100);
+	true ->
+	    timer:sleep(10)
     end,
     async_dirty_buffer_sender(Parent, Node, Num, RF, RemTxns, FilePos, Mode).
 
