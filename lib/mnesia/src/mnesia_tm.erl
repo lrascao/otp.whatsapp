@@ -66,7 +66,8 @@
 -record(buffer_log, {fn, wf, wtxns=[], wtxnsize=0, newtxns=[]}).
 -define(BUFFER_LOG_WRITE_SIZE, 524288).
 -define(BUFFER_BACKLOG_THRESHOLD, 200000).
--define(BUFFER_LOG_DRAINING_CUTOFF, 1000000).
+-define(BUFFER_LOG_MIN_RUNTIME_USEC, 60000000).
+-define(BUFFER_LOG_DRAINED_CUTOFF, 5*?BUFFER_LOG_WRITE_SIZE).
 
 
 -include("mnesia.hrl").
@@ -2263,7 +2264,7 @@ async_dirty_send (Node, [{TmName, Txn} | Tail]) ->
     async_dirty_send(Node, Tail).
 
 append_buffer_log (Mode, NewTxns) ->
-    append_buffer_log(Mode#buffer_log{newtxns=Mode#buffer_log.newtxns ++ NewTxns}).
+    append_buffer_log(Mode#buffer_log{newtxns=lists:append(Mode#buffer_log.newtxns, NewTxns)}).
 
 append_buffer_log (Mode = #buffer_log{newtxns=[]}) ->
     Mode;
@@ -2288,13 +2289,19 @@ init_async_dirty_buffer_sender (Parent, Node, Num, LogFile) ->
     case prim_file:open(LogFile, [raw, binary, read]) of
 	{ok, RF} ->
 	    %verbose("ms~b:~s async_dirty_sender buffer log sender started", [Num, Node]),
-	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], 0, running);
+	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], 0, {running, os:timestamp()});
 	RError ->
 	    verbose("Failure opening async_dirty_sender buffer log: ~s: ~1000p", [LogFile, RError]),
 	    exit(fatal)
     end.
 
 async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
+    Runtime = case Mode of
+		  {running, StartTime} ->
+		      timer:now_diff(os:timestamp(), StartTime);
+		  _ ->
+		      0
+	      end,
     case prim_file:read(RF, ?BUFFER_LOG_WRITE_SIZE) of
 	{ok, <<BufSize:32, Buf/binary>> = RBytes} ->
 	    if size(Buf) >= BufSize ->
@@ -2303,7 +2310,7 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
 		   RestSize = size(Rest),
 		   {ok, EofPos} = prim_file:position(RF, {eof, 0}),
 		   {ok, NewFilePos} = prim_file:position(RF, {bof, FilePos+size(RBytes)-RestSize}),
-		   NewMode = if Mode == running andalso NewFilePos > ?BUFFER_LOG_DRAINING_CUTOFF andalso EofPos - NewFilePos < ?BUFFER_LOG_DRAINING_CUTOFF ->
+		   NewMode = if Runtime >= ?BUFFER_LOG_MIN_RUNTIME_USEC andalso EofPos - NewFilePos =< ?BUFFER_LOG_DRAINED_CUTOFF ->
 				    Parent ! {buffer_drained, self()},
 				    %verbose("ms~b:~s async_dirty_sender buffer log stopping (buffered bytes: total=~b remaining=~b)", [Num, Node, EofPos, EofPos - NewFilePos]),
 				    stopping;
@@ -2317,10 +2324,6 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
 			   [Num, Node, size(RBytes), BufSize, size(Buf), FilePos, EofPos]),
 		   exit(shutdown)
 	    end;
-	eof when Mode == running ->
-	    Parent ! {buffer_drained, self()},
-	    %verbose("ms~b:~s async_dirty_sender buffer log stopping (eof; buffered bytes: total=~b)", [Num, Node, FilePos]),
-	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, stopping);
 	eof when Mode == stopping ->
 	    receive
 		{buffer_drained_ack, _Pid} ->
@@ -2331,6 +2334,13 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
 	    after 100 ->
 		    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, Mode)
 	    end;
+	eof when Runtime >= ?BUFFER_LOG_MIN_RUNTIME_USEC ->
+	    Parent ! {buffer_drained, self()},
+	    %verbose("ms~b:~s async_dirty_sender buffer log stopping (eof; buffered bytes: total=~b)", [Num, Node, FilePos]),
+	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, stopping);
+	eof ->
+	    timer:sleep(10),
+	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, Mode);
 	RError ->
 	    verbose("ms~b:~s async_dirty_sender buffer log read error: ~1000p", [Num, Node, RError]),
 	    exit(shutdown)
@@ -2341,8 +2351,8 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, RTxns, FilePos, Mode) ->
 	   ok;
        length(RemTxns) == length(RTxns) ->
 	   timer:sleep(100);
-	true ->
-	    timer:sleep(10)
+       true ->
+	   timer:sleep(10)
     end,
     async_dirty_buffer_sender(Parent, Node, Num, RF, RemTxns, FilePos, Mode).
 
