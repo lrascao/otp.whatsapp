@@ -818,6 +818,22 @@ efile_truncate_file(Efile_error* errInfo, int *fd, int flags)
 }
 
 int
+efile_truncate_filepos(Efile_error* errInfo, int *fd, Sint64 offset)
+{
+#ifndef NO_FTRUNCATE
+    return check_error(ftruncate(*fd, offset), errInfo);
+#else
+    return 1;
+#endif
+}
+
+int
+efile_truncate_filename(Efile_error* errInfo, char *name, Sint64 offset)
+{
+    return check_error(truncate(name, offset), errInfo);
+}
+
+int
 efile_readlink(Efile_error* errInfo, char* name, char* buffer, size_t size)
 {
     int len;

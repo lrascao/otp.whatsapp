@@ -58,6 +58,7 @@
 #define FILE_SENDFILE           32
 #define FILE_FALLOCATE          33
 #define FILE_CLOSE_ON_PORT_EXIT 34
+#define FILE_TRUNCATE_FILENAME	35
 /* Return codes */
 
 #define FILE_RESP_OK         0
@@ -512,6 +513,9 @@ struct t_data
 	    Sint64 offset;
 	    Sint64 length;
 	} fallocate;
+	struct {
+	    Sint64 length;
+	} truncate_filename;
     } c;
     char b[1];
 };
@@ -1098,6 +1102,21 @@ static void invoke_truncate(void *data)
     d->again = 0;
     d->result_ok = efile_truncate_file(&d->errInfo, &fd, d->flags);
     DTRACE_INVOKE_RETURN(FILE_TRUNCATE);
+}
+
+static void invoke_truncate_filename(void *data)
+{
+    struct t_data *d = (struct t_data *) data;
+    int fd = (int) d->fd;
+    DTRACE_INVOKE_SETUP(FILE_TRUNCATE_FILENAME);
+
+    d->again = 0;
+    if (d->b && *d->b) {
+	d->result_ok = efile_truncate_filename(&d->errInfo, d->b, d->c.truncate_filename.length);
+    } else {
+	d->result_ok = efile_truncate_filepos(&d->errInfo, &fd, d->c.truncate_filename.length);
+    }
+    DTRACE_INVOKE_RETURN(FILE_TRUNCATE_FILENAME);
 }
 
 static void invoke_read(void *data)
@@ -2418,6 +2437,7 @@ file_async_ready(ErlDrvData e, ErlDrvThreadData data)
       case FILE_FDATASYNC:
       case FILE_FSYNC:
       case FILE_TRUNCATE:
+      case FILE_TRUNCATE_FILENAME:
       case FILE_LINK:
       case FILE_SYMLINK:
       case FILE_RENAME:
@@ -2910,6 +2930,27 @@ file_output(ErlDrvData e, char* buf, ErlDrvSizeT count)
 	    goto done;
 	}
 
+    case FILE_TRUNCATE_FILENAME:
+	{
+	    d = EF_SAFE_ALLOC(sizeof(struct t_data) - 1
+			      + FILENAME_BYTELEN(buf + 1*8) + FILENAME_CHARSIZE);
+
+	    d->fd = fd;
+	    d->c.truncate_filename.length = (Sint64)get_int64(buf);
+
+	    FILENAME_COPY(d->b, buf + 1*8);
+#ifdef USE_VM_PROBES
+	    dt_i1              = d->c.truncate_filename.length;
+	    dt_s1 = d->b;
+	    dt_utag = buf + 1 * 8 + FILENAME_BYTELEN(d->b) + FILENAME_CHARSIZE;
+#endif
+	    d->command = command;
+	    d->invoke = invoke_truncate_filename;
+	    d->free = free_data;
+	    d->level = 2;
+	    goto done;
+	}
+
     case FILE_WRITE_INFO:
 	{
 	    d = EF_SAFE_ALLOC(sizeof(struct t_data) - 1
@@ -3135,7 +3176,7 @@ static ErlDrvSSizeT
 file_control(ErlDrvData e, unsigned int command, 
 	     char* buf, ErlDrvSizeT len, char **rbuf, ErlDrvSizeT rlen) {
     /*
-     *  warning: variable ‘desc’ set but not used 
+     *  warning: variable ‘desc’ set but not used
      *  [-Wunused-but-set-variable]
      *  ... no kidding ...
      *

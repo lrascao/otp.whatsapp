@@ -168,6 +168,8 @@ int efile_read(Efile_error* errInfo, int flags, int fd,
 int efile_seek(Efile_error* errInfo, int fd, 
 	       Sint64 offset, int origin, Sint64* new_location);
 int efile_truncate_file(Efile_error* errInfo, int *fd, int flags);
+int efile_truncate_filepos(Efile_error* errInfo, int *fd, Sint64 offset);
+int efile_truncate_filename(Efile_error* errInfo, char *name, Sint64 offset);
 int efile_pwrite(Efile_error* errInfo, int fd, 
 		 char* buf, size_t count, Sint64 offset);
 int efile_pread(Efile_error* errInfo, int fd, 

@@ -25,7 +25,7 @@
 %%% Interface towards a single file's contents. Uses ?FD_DRV.
 
 %% Generic file contents operations
--export([open/2, close/1, datasync/1, sync/1, advise/4, position/2, truncate/1,
+-export([open/2, close/1, close/2, datasync/1, sync/1, advise/4, position/2, truncate/1, truncate_file/2, truncate_file/3,
 	 write/2, pwrite/2, pwrite/3, read/2, read_line/1, pread/2, pread/3,
 	 copy/3, sendfile/10, allocate/3]).
 
@@ -101,6 +101,7 @@
 -define(FILE_ADVISE,           31).
 -define(FILE_SENDFILE,         32).
 -define(FILE_ALLOCATE,         33).
+-define(FILE_TRUNCATE_FILENAME,35).
 
 %% Driver responses
 -define(FILE_RESP_OK,          0).
@@ -253,6 +254,9 @@ open_int_setopts(Port, Number, [Cmd | Tail]) ->
 
 
 %% Returns ok.
+
+close(Port, #file_descriptor{module = ?MODULE, data = {Port, _}}) ->
+    drv_command(Port, <<?FILE_CLOSE>>).
 
 close(#file_descriptor{module = ?MODULE, data = {Port, _}}) ->
     case drv_command(Port, <<?FILE_CLOSE>>) of
@@ -491,7 +495,21 @@ position(#file_descriptor{module = ?MODULE, data = {Port, _}}, At) ->
 truncate(#file_descriptor{module = ?MODULE, data = {Port, _}}) ->
     drv_command(Port, <<?FILE_TRUNCATE>>).
 
+truncate_file(#file_descriptor{module = ?MODULE, data = {Port, _}}, Length) when is_integer(Length) ->
+    truncate_file(Port, <<>>, Length);
 
+truncate_file(File, Length) when (is_list(File) orelse is_binary(File)) andalso is_integer(Length) ->
+    case drv_open(?FD_DRV, [binary]) of
+	{ok, Port} ->
+	    Result = truncate_file(Port, File, Length),
+	    close(Port),
+	    Result;
+	{error, _} = Error ->
+	    Error
+    end.
+
+truncate_file(Port, File, Length) when is_port(Port) andalso (is_list(File) orelse is_binary(File)) andalso is_integer(Length) ->
+    drv_command(Port, [?FILE_TRUNCATE_FILENAME, int_to_int64bytes(Length), pathname(File)]).
 
 %% Returns {error, Reason} | {ok, BytesCopied}
 copy(#file_descriptor{module = ?MODULE} = Source,
