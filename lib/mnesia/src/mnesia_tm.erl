@@ -63,11 +63,14 @@
 -define(NUM_ASYNC_DIRTY_TM_MODULUS, 17).
 -define(NUM_ASYNC_DIRTY_TM_SENDER, 3).
 -define(ASYNC_DIRTY_TM_SENDER_TIMEOUT, 10000).
--record(buffer_log, {fn, wf, wtxns=[], wtxnsize=0, newtxns=[]}).
+-record(buffer_log, {fn, fnum=0, fsize=0, wf, wtxns=[], wtxnsize=0, newtxns=[]}).
+-record(buffer_log_send, {parent, node, num, logname, fnum, fn, rf, filepos, rtxns=[], ntxns=0, bytes=0, runmode, starttime}).
 -define(BUFFER_LOG_WRITE_SIZE, 524288).
+-define(BUFFER_LOG_MAX_FILE_SIZE, 100000000).
 -define(BUFFER_BACKLOG_THRESHOLD, 200000).
--define(BUFFER_LOG_MIN_RUNTIME_USEC, 60000000).
+-define(BUFFER_LOG_MIN_RUNTIME_USEC, 10000000).
 -define(BUFFER_LOG_DRAINED_CUTOFF, 5*?BUFFER_LOG_WRITE_SIZE).
+-define(PDQ_DEQ_CHECK_COUNT, 100).
 
 
 -include("mnesia.hrl").
@@ -76,6 +79,7 @@
 
 -record(state, {coordinators = gb_trees:empty(), participants = gb_trees:empty(), supervisor,
 		blocked_tabs = [], dirty_queue = [], fixed_tabs = [],
+		msg_queue = [], msg_rqueue = [],
 		async_dirty_tm}).
 %% Format on coordinators is [{Tid, EtsTabList} .....
 
@@ -241,8 +245,9 @@ unblock_tab(Tab) ->
     req(tab_to_async_dirty_tm_name(Tab), {unblock_tab, Tab}), 
     req({unblock_tab, Tab}).
 
-doit_loop(#state{coordinators=Coordinators,participants=Participants,supervisor=Sup}=State) ->
-    receive
+doit_loop(#state{coordinators=Coordinators,participants=Participants,supervisor=Sup}=State0) ->
+    {RecvMsg, State} = tm_dequeue(State0),
+    case RecvMsg of
 	{_From, {async_dirty, Tid, Commit, Tab}} ->
 	    case lists:member(Tab, State#state.blocked_tabs) of
 		false ->
@@ -490,9 +495,7 @@ doit_loop(#state{coordinators=Coordinators,participants=Participants,supervisor=
 	    case lists:member(Tab, BlockedTabs2) of
 		false ->
 		    mnesia_controller:unblock_table(Tab),
-		    Queue = process_dirty_queue(Tab, State#state.dirty_queue),
-		    State2 = State#state{blocked_tabs = BlockedTabs2,
-					 dirty_queue = Queue},
+		    State2 = process_dirty_queue(Tab, State#state{blocked_tabs = BlockedTabs2}),
 		    reply(From, ok, State2);
 		true ->
 		    State2 = State#state{blocked_tabs = BlockedTabs2},
@@ -526,6 +529,28 @@ doit_loop(#state{coordinators=Coordinators,participants=Participants,supervisor=
 	Msg ->
 	    verbose("** ERROR ** ~p got unexpected message: ~p~n", [?MODULE, Msg]),
 	    doit_loop(State)
+    end.
+
+tm_dequeue (#state{msg_queue=[], msg_rqueue=[]} = State) ->
+    tm_dequeue(State, infinity);
+tm_dequeue (State) ->
+    tm_dequeue(State, 0).
+
+tm_dequeue (State, Timeout) ->
+    receive
+	Msg ->
+	    tm_dequeue(State#state{msg_rqueue = [Msg | State#state.msg_rqueue]}, 0)
+    after
+	Timeout ->
+	    case {State#state.msg_queue, State#state.msg_rqueue} of
+		{[], [M]} ->
+		    {M, State#state{msg_rqueue=[]}};
+		{[], RQ} ->
+		    [M | Ms] = lists:reverse(RQ),
+		    {M, State#state{msg_queue = Ms, msg_rqueue = []}};
+		{[M | Ms], _} ->
+		    {M, State#state{msg_queue = Ms}}
+	    end
     end.
 
 do_sync_dirty(From, Tid, Commit, _Tab) ->
@@ -575,23 +600,34 @@ tab_to_frag_num ([_ | S]) ->
     tab_to_frag_num(S).
 
 %% Process items in fifo order
-process_dirty_queue(Tab, [Item | Queue]) ->
-    Queue2 = process_dirty_queue(Tab, Queue),
-    case Item of
-	{async_dirty, Tid, Commit, Tab} ->
-	    do_async_dirty(Tid, Commit, Tab),
-	    Queue2;
-	{sync_dirty, From, Tid, Commit, Tab} ->
-	    do_sync_dirty(From, Tid, Commit, Tab),
-	    Queue2;
-	{Tab, unblock_me, From} ->
-	    reply(From, unblocked),
-	    Queue2;
-	_ ->
-	    [Item | Queue2]
+process_dirty_queue (Tab, State) ->
+    process_dirty_queue(Tab, State#state{dirty_queue = []}, lists:reverse(State#state.dirty_queue), ?PDQ_DEQ_CHECK_COUNT).
+
+process_dirty_queue (_Tab, State, [], _Count) ->
+    State;
+process_dirty_queue (Tab, State, Queue, 0) ->
+    receive
+	Msg ->
+	    process_dirty_queue(Tab, State#state{msg_rqueue = [Msg | State#state.msg_rqueue]}, Queue, 0)
+    after
+	0 ->
+	    process_dirty_queue(Tab, State, Queue, ?PDQ_DEQ_CHECK_COUNT)
     end;
-process_dirty_queue(_Tab, []) ->
-    [].
+process_dirty_queue (Tab, State, [Item | Queue], Count) ->
+    State2 = case Item of
+		 {async_dirty, Tid, Commit, Tab} ->
+		     do_async_dirty(Tid, Commit, Tab),
+		     State;
+		 {sync_dirty, From, Tid, Commit, Tab} ->
+		     do_sync_dirty(From, Tid, Commit, Tab),
+		     State;
+		 {Tab, unblock_me, From} ->
+		     reply(From, unblocked),
+		     State;
+		 _ ->
+		     State#state{dirty_queue = [Item | State#state.dirty_queue]}
+	     end,
+    process_dirty_queue(Tab, State2, Queue, Count-1).
 
 prepare_pending_coordinators([{Tid, [Store | _Etabs]} | Coords], IgnoreNew) ->
     case catch ?ets_lookup(Store, pending) of
@@ -2195,14 +2231,15 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 			   RemTxns;
 		       true ->
 			   % need to start buffering on disk
-			   LogName = node_num_to_async_dirty_tm_sender_log(Node, Num),
-			   LogFile = mnesia_lib:dir(atom_to_list(LogName)),
-			   case prim_file:open(LogFile, [raw, binary, append]) of
+			   LogName = atom_to_list(node_num_to_async_dirty_tm_sender_log(Node, Num)),
+			   LogFile = lists:flatten(io_lib:format("~s.~4.10.0b", [LogName, 0])),
+			   case prim_file:open(mnesia_lib:dir(LogFile), [raw, binary, append]) of
 			       {ok, WF} ->
 				   prim_file:truncate(WF),
-				   BufferMode = append_buffer_log(#buffer_log{fn=LogFile, wf=WF}, RemTxns),
-				   NewPid = spawn_link(?MODULE, init_async_dirty_buffer_sender, [self(), Node, Num, LogFile]),
-				   verbose("ms~b:~s async_dirty_sender buffer log starting (queued txns=~b pid=~p)", [Num, Node, length(RemTxns), NewPid]),
+				   BufferMode = append_buffer_log(#buffer_log{fn=LogName, wf=WF}, RemTxns),
+				   NewPid = spawn_link(?MODULE, init_async_dirty_buffer_sender, [self(), Node, Num, LogName]),
+				   verbose("~s: START async_dirty_sender buffer log (reader=~p)", [LogName, NewPid]),
+				   verbose("~s: OPEN-WRITE async_dirty_sender buffer log (seq=~b)", [LogName, 0]),
 				   BufferMode;
 			       WError ->
 				   verbose("Failure opening async_dirty_sender buffer log: ~s: ~1000p", [LogFile, WError]),
@@ -2218,7 +2255,8 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 		    append_buffer_log(Mode, Txns);
 		force ->
 		    % blocking send because buffering failed
-		    async_dirty_send(Node, Txns)
+		    async_dirty_send(Node, Txns),
+		    force
 	    end,
     Mode2 = case Msg of
 		undefined ->
@@ -2228,16 +2266,20 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 		    % our peer is going down
 		    unlink(Parent),
 		    exit(shutdown);
-		{buffer_drained, SenderPid} ->
+		{buffer_drained, FNum, SenderPid} when FNum =:= Mode1#buffer_log.fnum ->
 		    % the sender reached the drain threshold and is stopping
-		    verbose("ms~b:~s Drained async_dirty_sender buffer log (wtxns=~b newtxns=~b)", [Num, Node, length(Mode1#buffer_log.wtxns), length(Mode1#buffer_log.newtxns)]),
+		    verbose("~s: DRAINED async_dirty_sender buffer log (seq=~b wtxns=~b newtxns=~b)", [Mode1#buffer_log.fn, FNum, length(Mode1#buffer_log.wtxns), length(Mode1#buffer_log.newtxns)]),
 		    SenderPid ! {buffer_drained_ack, self()},
 		    % queue up the txns that were being buffered for a log write and append the queued txns
-		    Mode1#buffer_log{wtxns=undefined, newtxns=lists:append(lists:reverse(Mode1#buffer_log.wtxns), Mode1#buffer_log.newtxns)}; 
+		    Mode1#buffer_log{wtxns=undefined, newtxns=lists:append(lists:reverse(Mode1#buffer_log.wtxns), Mode1#buffer_log.newtxns)};
+		{buffer_drained, FNum, SenderPid} ->
+		    verbose("~s: NEXT async_dirty_sender buffer log (read-seq=~b write-seq=~b pending=~b)",
+			    [Mode1#buffer_log.fn, FNum, Mode1#buffer_log.fnum, Mode1#buffer_log.fnum - FNum]),
+		    SenderPid ! {buffer_continue, Mode1#buffer_log.fnum, self()},
+		    Mode1;
 		{buffer_drained_ack, _Pid} ->
 		    % sender has stopped so we can send our queued transactions and resume in-memory buffering
-		    verbose("ms~b:~s Drained (ack) async_dirty_sender buffer log (newtxns=~b)", [Num, Node, length(Mode#buffer_log.newtxns)]),
-		    prim_file:truncate(Mode#buffer_log.wf),
+		    verbose("~s: STOPPED async_dirty_sender buffer log (newtxns=~b)", [Mode1#buffer_log.fn, length(Mode#buffer_log.newtxns)]),
 		    prim_file:close(Mode#buffer_log.wf),
 		    Mode1#buffer_log.newtxns;
 		Other ->
@@ -2274,34 +2316,49 @@ append_buffer_log (Mode = #buffer_log{wtxns=WTxns, wtxnsize=WTxnSize, newtxns=[T
 	   WBuf = term_to_binary(lists:reverse(WTxns)),
 	   WBufSize = size(WBuf),
 %%	   verbose("Write ~b bytes: ~p", [WBufSize, Mode#buffer_log.fn]),
-	   case prim_file:write(Mode#buffer_log.wf, <<WBufSize:32, WBuf/binary>>) of
+	   Mode1 = if Mode#buffer_log.fsize >= ?BUFFER_LOG_MAX_FILE_SIZE ->
+			  prim_file:close(Mode#buffer_log.wf),
+			  FNum = Mode#buffer_log.fnum+1,
+			  LogFile = lists:flatten(io_lib:format("~s.~4.10.0b", [Mode#buffer_log.fn, FNum])),
+			  case prim_file:open(mnesia_lib:dir(LogFile), [raw, binary, append]) of
+			      {ok, WF} ->
+				  verbose("~s: OPEN-WRITE async_dirty_sender buffer log (seq=~b)", [Mode#buffer_log.fn, FNum]),
+				  prim_file:truncate(WF),
+				  Mode#buffer_log{fnum=FNum, fsize=0, wf=WF};
+			      OError ->
+				  verbose("Failure opening async_dirty_sender buffer log: ~s: ~1000p", [LogFile, OError]),
+				  exit(fatal)
+			  end;
+		      true ->
+			  Mode
+		   end,
+	   case prim_file:write(Mode1#buffer_log.wf, <<WBufSize:32, WBuf/binary>>) of
 	       ok ->
-		   Mode#buffer_log{wtxns=[Txn], wtxnsize=TxnSize, newtxns=Tail};
+		   Mode1#buffer_log{fsize=Mode1#buffer_log.fsize+WBufSize+4, wtxns=[Txn], wtxnsize=TxnSize, newtxns=Tail};
 	       WError ->
-		   verbose("Failure writing async_dirty_sender buffer log: ~s: ~1000p", [Mode#buffer_log.fn, WError]),
+		   verbose("Failure writing async_dirty_sender buffer log: ~s: ~1000p", [Mode1#buffer_log.fn, WError]),
 		   exit(fatal)
 	   end;
        true ->
 	   append_buffer_log(Mode#buffer_log{wtxns=[Txn|WTxns], wtxnsize=WTxnSize+TxnSize, newtxns=Tail})
     end.
 
-init_async_dirty_buffer_sender (Parent, Node, Num, LogFile) ->
-    case prim_file:open(LogFile, [raw, binary, read]) of
+init_async_dirty_buffer_sender (Parent, Node, Num, LogName) ->
+    open_async_dirty_buffer_log(#buffer_log_send{parent=Parent, node=Node, num=Num, logname=LogName, fnum=0, runmode=running, starttime=os:timestamp()}).
+
+open_async_dirty_buffer_log (Log) ->
+    LogFile = lists:flatten(io_lib:format("~s.~4.10.0b", [Log#buffer_log_send.logname, Log#buffer_log_send.fnum])),
+    verbose("~s: OPEN-READ async_dirty_sender buffer log (seq=~b)", [Log#buffer_log_send.logname, Log#buffer_log_send.fnum]),
+    case prim_file:open(mnesia_lib:dir(LogFile), [raw, binary, read]) of
 	{ok, RF} ->
-	    %verbose("ms~b:~s async_dirty_sender buffer log sender started", [Num, Node]),
-	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], 0, {running, os:timestamp()});
+	    async_dirty_buffer_sender(Log#buffer_log_send{fn=LogFile, rf=RF, filepos=0});
 	RError ->
 	    verbose("Failure opening async_dirty_sender buffer log: ~s: ~1000p", [LogFile, RError]),
 	    exit(fatal)
     end.
-
-async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
-    Runtime = case Mode of
-		  {running, StartTime} ->
-		      timer:now_diff(os:timestamp(), StartTime);
-		  _ ->
-		      0
-	      end,
+	    
+async_dirty_buffer_sender (#buffer_log_send{parent=Parent, rf=RF, filepos=FilePos, rtxns=[], runmode=RunMode} = Log) ->
+    Runtime = timer:now_diff(os:timestamp(), Log#buffer_log_send.starttime),
     case prim_file:read(RF, ?BUFFER_LOG_WRITE_SIZE) of
 	{ok, <<BufSize:32, Buf/binary>> = RBytes} ->
 	    if size(Buf) >= BufSize ->
@@ -2310,42 +2367,51 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, [], FilePos, Mode) ->
 		   RestSize = size(Rest),
 		   {ok, EofPos} = prim_file:position(RF, {eof, 0}),
 		   {ok, NewFilePos} = prim_file:position(RF, {bof, FilePos+size(RBytes)-RestSize}),
-		   NewMode = if Runtime >= ?BUFFER_LOG_MIN_RUNTIME_USEC andalso EofPos - NewFilePos =< ?BUFFER_LOG_DRAINED_CUTOFF ->
-				    Parent ! {buffer_drained, self()},
-				    %verbose("ms~b:~s async_dirty_sender buffer log stopping (buffered bytes: total=~b remaining=~b)", [Num, Node, EofPos, EofPos - NewFilePos]),
-				    stopping;
-				true ->
-				    Mode
-			     end,
-		   async_dirty_buffer_sender(Parent, Node, Num, RF, RTxns, NewFilePos, NewMode);
+		   NumRTxns = length(RTxns),
+		   NumTxns = Log#buffer_log_send.ntxns + NumRTxns, 
+		   NewRunMode = if RunMode =:= running andalso EofPos - NewFilePos =< ?BUFFER_LOG_DRAINED_CUTOFF andalso Runtime >= ?BUFFER_LOG_MIN_RUNTIME_USEC ->  
+				       Parent ! {buffer_drained, Log#buffer_log_send.fnum, self()},
+				       verbose("~s: PRE-EOF-READ async_dirty_sender buffer log (seq=~b ntxns=~b pos=~b eof=~b remaining=~b)",
+					       [Log#buffer_log_send.logname, Log#buffer_log_send.fnum, NumTxns, NewFilePos, EofPos, EofPos - NewFilePos]),
+				       eof;
+				   true ->
+				       RunMode
+				end,
+		   async_dirty_buffer_sender(Log#buffer_log_send{rtxns=RTxns, ntxns=NumTxns, filepos=NewFilePos, runmode=NewRunMode});
 	       true ->
 		   {ok, EofPos} = prim_file:position(RF, {eof, 0}),
-		   verbose("Truncated read on async_dirty_sender buffer log: ms~b:~s (bytes=~b bufsize=~b size(buf)=~b pos=~b eof=~b)",
-			   [Num, Node, size(RBytes), BufSize, size(Buf), FilePos, EofPos]),
+		   verbose("~s: ERROR: truncated read on async_dirty_sender buffer log (bytes=~b bufsize=~b size(buf)=~b pos=~b eof=~b)",
+			   [Log#buffer_log_send.fn, size(RBytes), BufSize, size(Buf), FilePos, EofPos]),
 		   exit(shutdown)
 	    end;
-	eof when Mode == stopping ->
+	eof when RunMode == eof ->
 	    receive
 		{buffer_drained_ack, _Pid} ->
 		    Parent ! {buffer_drained_ack, self()},
 		    prim_file:close(RF),
-		    verbose("ms~b:~s async_dirty_sender buffer log drained (log size=~b)", [Num, Node, FilePos]),
-		    exit(normal)
+		    prim_file:delete(mnesia_lib:dir(Log#buffer_log_send.fn)),
+		    verbose("~s: STOPPING async_dirty_sender buffer log (seq=~b ntxns=~b bytes=~b)", [Log#buffer_log_send.logname, Log#buffer_log_send.fnum, Log#buffer_log_send.ntxns, Log#buffer_log_send.bytes + FilePos]),
+		    exit(normal);
+		{buffer_continue, _NewFNum, _Pid} ->
+		    prim_file:close(RF),
+		    prim_file:delete(mnesia_lib:dir(Log#buffer_log_send.fn)),
+		    open_async_dirty_buffer_log(Log#buffer_log_send{fnum=Log#buffer_log_send.fnum+1, bytes=Log#buffer_log_send.bytes+FilePos, runmode=running})
 	    after 100 ->
-		    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, Mode)
+		    async_dirty_buffer_sender(Log)
 	    end;
 	eof when Runtime >= ?BUFFER_LOG_MIN_RUNTIME_USEC ->
-	    Parent ! {buffer_drained, self()},
-	    %verbose("ms~b:~s async_dirty_sender buffer log stopping (eof; buffered bytes: total=~b)", [Num, Node, FilePos]),
-	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, stopping);
+	    Parent ! {buffer_drained, Log#buffer_log_send.fnum, self()},
+	    verbose("~s: EOF-READ async_dirty_sender buffer log (seq=~b ntxns=~b eof=~b)",
+		    [Log#buffer_log_send.fn, Log#buffer_log_send.fnum, Log#buffer_log_send.ntxns, Log#buffer_log_send.filepos]),
+	    async_dirty_buffer_sender(Log#buffer_log_send{runmode=eof});
 	eof ->
 	    timer:sleep(10),
-	    async_dirty_buffer_sender(Parent, Node, Num, RF, [], FilePos, Mode);
+	    async_dirty_buffer_sender(Log);
 	RError ->
-	    verbose("ms~b:~s async_dirty_sender buffer log read error: ~1000p", [Num, Node, RError]),
+	    verbose("~s: async_dirty_sender buffer log read error: ~1000p", [Log#buffer_log_send.fn, RError]),
 	    exit(shutdown)
     end;
-async_dirty_buffer_sender (Parent, Node, Num, RF, RTxns, FilePos, Mode) ->
+async_dirty_buffer_sender (#buffer_log_send{node=Node, rtxns=RTxns} = Log) ->
     RemTxns = send_buffer_log_try(Node, RTxns),
     if length(RemTxns) == 0 ->
 	   ok;
@@ -2354,7 +2420,7 @@ async_dirty_buffer_sender (Parent, Node, Num, RF, RTxns, FilePos, Mode) ->
        true ->
 	   timer:sleep(10)
     end,
-    async_dirty_buffer_sender(Parent, Node, Num, RF, RemTxns, FilePos, Mode).
+    async_dirty_buffer_sender(Log#buffer_log_send{rtxns=RemTxns}).
 
 send_buffer_log_try (_Node, []) ->
     [];
