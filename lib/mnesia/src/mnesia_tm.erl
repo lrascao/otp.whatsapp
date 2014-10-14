@@ -2266,9 +2266,14 @@ async_dirty_sender_loop (Node, Num, Parent, Mode) ->
 		    % our peer is going down
 		    unlink(Parent),
 		    exit(shutdown);
+		{buffer_drained, FNum, SenderPid} when length(Mode1#buffer_log.wtxns)+length(Mode1#buffer_log.newtxns) > ?BUFFER_BACKLOG_THRESHOLD ->
+		    % the sender reached the drain threshold but we still have too much queued here; continue spooling
+		    verbose("~s: DEFER-STOP async_dirty_sender buffer log (seq=~b wtxns=~b newtxns=~b)", [Mode1#buffer_log.fn, FNum, length(Mode1#buffer_log.wtxns), length(Mode1#buffer_log.newtxns)]),
+		    SenderPid ! {buffer_continue, Mode1#buffer_log.fnum, self()},
+		    Mode1;
 		{buffer_drained, FNum, SenderPid} when FNum =:= Mode1#buffer_log.fnum ->
 		    % the sender reached the drain threshold and is stopping
-		    verbose("~s: DRAINED async_dirty_sender buffer log (seq=~b wtxns=~b newtxns=~b)", [Mode1#buffer_log.fn, FNum, length(Mode1#buffer_log.wtxns), length(Mode1#buffer_log.newtxns)]),
+		    verbose("~s: DRAINED-STOP async_dirty_sender buffer log (seq=~b wtxns=~b newtxns=~b)", [Mode1#buffer_log.fn, FNum, length(Mode1#buffer_log.wtxns), length(Mode1#buffer_log.newtxns)]),
 		    SenderPid ! {buffer_drained_ack, self()},
 		    % queue up the txns that were being buffered for a log write and append the queued txns
 		    Mode1#buffer_log{wtxns=undefined, newtxns=lists:append(lists:reverse(Mode1#buffer_log.wtxns), Mode1#buffer_log.newtxns)};
@@ -2357,7 +2362,7 @@ open_async_dirty_buffer_log (Log) ->
 	    exit(fatal)
     end.
 	    
-async_dirty_buffer_sender (#buffer_log_send{parent=Parent, rf=RF, filepos=FilePos, rtxns=[], runmode=RunMode} = Log) ->
+async_dirty_buffer_sender (#buffer_log_send{parent=Parent, rf=RF, fnum=FNum, filepos=FilePos, rtxns=[], runmode=RunMode} = Log) ->
     Runtime = timer:now_diff(os:timestamp(), Log#buffer_log_send.starttime),
     case prim_file:read(RF, ?BUFFER_LOG_WRITE_SIZE) of
 	{ok, <<BufSize:32, Buf/binary>> = RBytes} ->
@@ -2370,9 +2375,9 @@ async_dirty_buffer_sender (#buffer_log_send{parent=Parent, rf=RF, filepos=FilePo
 		   NumRTxns = length(RTxns),
 		   NumTxns = Log#buffer_log_send.ntxns + NumRTxns, 
 		   NewRunMode = if RunMode =:= running andalso EofPos - NewFilePos =< ?BUFFER_LOG_DRAINED_CUTOFF andalso Runtime >= ?BUFFER_LOG_MIN_RUNTIME_USEC ->  
-				       Parent ! {buffer_drained, Log#buffer_log_send.fnum, self()},
+				       Parent ! {buffer_drained, FNum, self()},
 				       verbose("~s: PRE-EOF-READ async_dirty_sender buffer log (seq=~b ntxns=~b pos=~b eof=~b remaining=~b)",
-					       [Log#buffer_log_send.logname, Log#buffer_log_send.fnum, NumTxns, NewFilePos, EofPos, EofPos - NewFilePos]),
+					       [Log#buffer_log_send.logname, FNum, NumTxns, NewFilePos, EofPos, EofPos - NewFilePos]),
 				       eof;
 				   true ->
 				       RunMode
@@ -2387,11 +2392,14 @@ async_dirty_buffer_sender (#buffer_log_send{parent=Parent, rf=RF, filepos=FilePo
 	eof when RunMode == eof ->
 	    receive
 		{buffer_drained_ack, _Pid} ->
-		    Parent ! {buffer_drained_ack, self()},
 		    prim_file:close(RF),
 		    prim_file:delete(mnesia_lib:dir(Log#buffer_log_send.fn)),
-		    verbose("~s: STOPPING async_dirty_sender buffer log (seq=~b ntxns=~b bytes=~b)", [Log#buffer_log_send.logname, Log#buffer_log_send.fnum, Log#buffer_log_send.ntxns, Log#buffer_log_send.bytes + FilePos]),
+		    verbose("~s: STOPPING async_dirty_sender buffer log (seq=~b ntxns=~b bytes=~b)", [Log#buffer_log_send.logname, FNum, Log#buffer_log_send.ntxns, Log#buffer_log_send.bytes + FilePos]),
+		    Parent ! {buffer_drained_ack, self()},
 		    exit(normal);
+		{buffer_continue, FNum, _Pid} ->
+		    timer:sleep(100),
+		    async_dirty_buffer_sender(Log#buffer_log_send{runmode=running});
 		{buffer_continue, _NewFNum, _Pid} ->
 		    prim_file:close(RF),
 		    prim_file:delete(mnesia_lib:dir(Log#buffer_log_send.fn)),
@@ -2402,7 +2410,7 @@ async_dirty_buffer_sender (#buffer_log_send{parent=Parent, rf=RF, filepos=FilePo
 	eof when Runtime >= ?BUFFER_LOG_MIN_RUNTIME_USEC ->
 	    Parent ! {buffer_drained, Log#buffer_log_send.fnum, self()},
 	    verbose("~s: EOF-READ async_dirty_sender buffer log (seq=~b ntxns=~b eof=~b)",
-		    [Log#buffer_log_send.fn, Log#buffer_log_send.fnum, Log#buffer_log_send.ntxns, Log#buffer_log_send.filepos]),
+		    [Log#buffer_log_send.logname, Log#buffer_log_send.fnum, Log#buffer_log_send.ntxns, Log#buffer_log_send.filepos]),
 	    async_dirty_buffer_sender(Log#buffer_log_send{runmode=eof});
 	eof ->
 	    timer:sleep(10),
